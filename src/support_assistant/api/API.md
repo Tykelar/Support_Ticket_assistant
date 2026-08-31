@@ -91,7 +91,7 @@ from it alone.
     { "seq": 7, "ts": "2026-08-31T10:14:02.117Z", "type": "tool_result",
       "tool": "get_invoices", "ok": true,
       "summary": {"count": 3, "statuses": {"paid": 2, "failed": 1},
-                  "referenced": ["inv_204"]} },
+                  "referenced": ["inv_204", "inv_203", "inv_202"]} },
     { "seq": 8, "ts": "2026-08-31T10:14:02.119Z", "type": "llm_decision",
       "iteration": 3, "decision": "reply" },
     { "seq": 9, "ts": "2026-08-31T10:14:02.121Z", "type": "grounding_check",

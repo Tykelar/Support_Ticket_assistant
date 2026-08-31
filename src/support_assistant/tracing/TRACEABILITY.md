@@ -50,7 +50,7 @@ precisely the case worth seeing.
 { "seq": 7, "ts": "2026-08-31T10:14:02.113Z",
   "type": "tool_result", "tool": "get_invoices", "ok": true,
   "summary": { "count": 3, "statuses": { "paid": 2, "failed": 1 },
-               "referenced": ["inv_204"] } }
+               "referenced": ["inv_204", "inv_203", "inv_202"] } }
 ```
 
 Three reasons, in order of importance:
@@ -69,23 +69,23 @@ Enough to explain the reply, never more:
 
 - **counts** — how many rows came back;
 - **distribution over enumerated fields** — the statuses and their frequencies;
-- **the identifiers actually used in the reply** — so a reader can go from a sentence to
-  the exact source record.
+- **the identifiers the result returned** — so a reader can go from a sentence in the
+  reply to the exact source record.
 
-What is deliberately excluded: full field-by-field records, and anything the reply did not
-depend on.
+What is deliberately excluded: full field-by-field records.
 
-`summarise(result, referenced=None)` in [summarise.py](summarise.py) produces this, one
-rule per tool. In the agentic loop it runs *before* a reply exists, so it is called with
-`referenced=None` and the list holds every identifier the call returned; once the reply
-is rendered the orchestrator calls it again with the identifiers that reply cited, and
-the list narrows to those. The status distribution is emitted in enum-declaration order
-rather than row order, so a persisted summary is byte-stable run to run.
+`summarise(result)` in [summarise.py](summarise.py) produces this, one rule per tool. The
+`referenced` list holds every identifier the call returned. Narrowing it to just the ones
+the rendered reply cites is a deferred refinement — it only means anything once the
+pipeline renders a reply, and it needs either a second pass or building the `tool_result`
+step at persist time; the orchestrator will own that call when it exists. Until then the
+full list is a safe superset. The status distribution is emitted in enum-declaration
+order rather than row order, so a persisted summary is byte-stable run to run.
 
 **The tension worth naming:** summarisation is lossy, and a lossy audit record can fail to
 explain an outcome. The rule above is chosen so the *decision-relevant* facts always
 survive — the `referenced` list is what guarantees a reader can trace any statement in the
-reply back to a specific record. Facts the reply never used are the only thing dropped.
+reply back to a specific record. Per-record field detail is the only thing dropped.
 
 ---
 
@@ -131,7 +131,7 @@ The recorder is constructed with a `Clock` and stamps every step it appends:
 
 ```python
 class TraceRecorder:
-    def __init__(self, ticket_id: str, clock: Clock) -> None
+    def __init__(self, clock: Clock) -> None
     def intent_classified(self, intent, matched_keywords) -> None
     def llm_decision(self, iteration, decision, tool=None) -> None
     def tool_call(self, tool, args) -> None
@@ -144,8 +144,10 @@ class TraceRecorder:
 call, the tool name — not the LLM's step object. The `ToolCall` / `Reply` / `Handoff`
 types arrive with `llm/` in a later phase and nothing in `tracing/` may depend on `llm/`
 ([ARCHITECTURE.md](../../../ARCHITECTURE.md) §3); the orchestrator unpacks its own `step`
-at the call site. `tool_result`'s `ok` and `grounding_check`'s `passed` are derived from
-`error` and `violations` respectively, so the caller cannot record them inconsistently.
+at the call site. Three coherence rules are enforced by the models, not left to the
+caller: `tool_result`'s `ok` is derived from whether an `error` is present,
+`grounding_check`'s `passed` from whether `violations` is empty, and `llm_decision` names
+a `tool` exactly when the decision is `tool_call`.
 
 Steps accumulate in memory during the run and are persisted with the terminal state in one
 transaction, so a ticket is never observed with a terminal status but a truncated trace

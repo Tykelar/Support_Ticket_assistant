@@ -73,6 +73,18 @@ def test_llm_decision_rejects_a_decision_outside_the_union() -> None:
         LLMDecision(seq=2, ts=TS, iteration=1, decision="retry")
 
 
+def test_llm_decision_rejects_a_tool_call_with_no_tool() -> None:
+    # Same guarantee as tool_result.ok / grounding_check.passed: the decision and the
+    # tool name cannot be recorded inconsistently.
+    with pytest.raises(ValidationError):
+        LLMDecision(seq=2, ts=TS, iteration=1, decision="tool_call")
+
+
+def test_llm_decision_rejects_a_non_tool_call_that_names_a_tool() -> None:
+    with pytest.raises(ValidationError):
+        LLMDecision(seq=2, ts=TS, iteration=1, decision="handoff", tool="get_user")
+
+
 def test_tool_call_records_its_arguments() -> None:
     step = ToolCallStep(seq=3, ts=TS, tool="get_invoices", args={"user_id": "u_002"})
     assert step.args == {"user_id": "u_002"}
@@ -84,7 +96,11 @@ def test_tool_result_carries_a_summary_on_success() -> None:
         ts=TS,
         tool="get_invoices",
         ok=True,
-        summary={"count": 3, "statuses": {"paid": 2, "failed": 1}, "referenced": ["inv_204"]},
+        summary={
+            "count": 3,
+            "statuses": {"paid": 2, "failed": 1},
+            "referenced": ["inv_204", "inv_203", "inv_202"],
+        },
     )
     assert step.error is None
     assert step.summary["count"] == 3
@@ -299,7 +315,7 @@ def _invoices_result() -> ToolResult:
 
 
 def test_recorder_assigns_seq_1_based_and_monotonic_across_step_types() -> None:
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     rec.intent_classified(Intent.BILLING_QUESTION, ["invoice"])
     rec.llm_decision(1, "tool_call", tool="get_user")
     rec.tool_call("get_user", {"user_id": "u_002"})
@@ -321,7 +337,7 @@ def test_recorder_assigns_seq_1_based_and_monotonic_across_step_types() -> None:
 def test_recorder_stamps_ts_from_the_injected_clock_only() -> None:
     # ADR 0008: nothing reads the wall clock. A known tick times a known number of steps
     # is arithmetic -- which is what makes pipeline_duration_seconds assertable.
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     rec.intent_classified(Intent.UNKNOWN, [])
     rec.final_decision(
         TicketStatus.HANDED_OFF,
@@ -332,7 +348,7 @@ def test_recorder_stamps_ts_from_the_injected_clock_only() -> None:
 
 
 def test_recorder_ts_strictly_increases_with_seq() -> None:
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     for i in range(1, 6):
         rec.llm_decision(i, "tool_call", tool="get_user")
     steps = rec.steps
@@ -341,7 +357,7 @@ def test_recorder_ts_strictly_increases_with_seq() -> None:
 
 
 def test_tool_result_ok_is_derived_from_the_absence_of_an_error() -> None:
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     rec.tool_result("get_invoices", summary={"count": 0, "statuses": {}, "referenced": []})
     rec.tool_result(
         "get_invoices", error=ToolError(type="NoDataAvailable", message="none")
@@ -352,7 +368,7 @@ def test_tool_result_ok_is_derived_from_the_absence_of_an_error() -> None:
 
 
 def test_grounding_check_passed_follows_from_whether_violations_is_empty() -> None:
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     rec.grounding_check(3, [])
     rec.grounding_check(
         4, [Violation(literal="99.00", literal_class="number", reason="unsourced")]
@@ -366,15 +382,23 @@ def test_grounding_check_passed_follows_from_whether_violations_is_empty() -> No
 def test_recorder_rejects_an_incoherent_final_decision() -> None:
     # The recorder builds a FinalDecision, whose model validator enforces the
     # outcome/reason invariant -- a handoff without a reason cannot be recorded.
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     with pytest.raises(ValidationError):
         rec.final_decision(TicketStatus.HANDED_OFF)
+
+
+def test_recorder_rejects_an_incoherent_llm_decision() -> None:
+    # Parity with the final_decision case: LLMDecision's validator rejects a non-tool-call
+    # that carries a tool name, so the recorder cannot write one.
+    rec = TraceRecorder(FrozenClock())
+    with pytest.raises(ValidationError):
+        rec.llm_decision(1, "handoff", tool="get_user")
 
 
 def test_recorded_steps_round_trip_through_the_trace_union() -> None:
     # STORAGE.md persists the trace as JSON; reading a ticket back has to reconstruct the
     # concrete step classes, not an untyped dict.
-    rec = TraceRecorder("t_abc", FrozenClock())
+    rec = TraceRecorder(FrozenClock())
     rec.intent_classified(Intent.BILLING_QUESTION, ["invoice"])
     rec.llm_decision(1, "reply")
     rec.tool_call("get_invoices", {"user_id": "u_002"})
@@ -409,14 +433,6 @@ def test_summarise_get_invoices_counts_and_distributes_over_status() -> None:
     # Ordered by enum declaration, not row order (the rows lead with the failed one), so
     # the distribution is stable to serialise and to assert on.
     assert list(summary["statuses"]) == ["paid", "failed"]
-
-
-def test_summarise_narrows_referenced_to_the_supplied_identifiers() -> None:
-    # In the loop there is no reply yet, so referenced lists every returned id; once a
-    # reply is rendered the pipeline passes the ids it actually used to narrow it.
-    summary = summarise(_invoices_result(), referenced={"inv_204"})
-    assert summary["referenced"] == ["inv_204"]
-    assert summary["count"] == 3
 
 
 def test_summarise_get_charging_sessions_distributes_over_session_status() -> None:

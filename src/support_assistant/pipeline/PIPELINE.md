@@ -18,7 +18,7 @@ LLM proposes, guardrails report — the orchestrator decides.
 ```python
 def run_pipeline(ticket_id: str) -> None:
     ticket = repo.get(ticket_id)
-    trace = TraceRecorder(ticket_id, clock)
+    trace = TraceRecorder(clock)
 
     try:
         # 1. Classify
@@ -31,7 +31,8 @@ def run_pipeline(ticket_id: str) -> None:
         history: list[Observation] = []
         for iteration in range(1, MAX_ITERATIONS + 1):
             step = llm.decide_next_step(ticket, history)
-            trace.llm_decision(iteration, step)
+            # tracing/ can't import llm/, so the orchestrator adapts its own step:
+            trace.llm_decision(iteration, step.decision, tool=getattr(step, "tool", None))
 
             match step:
                 case ToolCall():

@@ -47,6 +47,10 @@ class LLMDecision(TraceStepBase):
     Recorded separately from `tool_call`, which is what the system did. Collapsing them
     would hide the case where the two diverge -- a rejected tool name, a validation
     failure before execution -- which is precisely the case worth seeing.
+
+    `tool` is set exactly when `decision` is `tool_call`; the validator below enforces it,
+    so -- as with `tool_result.ok` and `grounding_check.passed` -- the recorder's caller
+    cannot produce an incoherent step.
     """
 
     type: Literal["llm_decision"] = "llm_decision"
@@ -54,6 +58,14 @@ class LLMDecision(TraceStepBase):
     decision: Literal["tool_call", "reply", "handoff"]
     tool: str | None = None
     """Present only when the decision was a tool call."""
+
+    @model_validator(mode="after")
+    def _tool_named_iff_tool_call(self) -> Self:
+        if self.decision == "tool_call" and self.tool is None:
+            raise ValueError("a tool_call decision names the tool it called")
+        if self.decision != "tool_call" and self.tool is not None:
+            raise ValueError("only a tool_call decision carries a tool")
+        return self
 
 
 class ToolCallStep(TraceStepBase):

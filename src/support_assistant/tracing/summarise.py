@@ -1,31 +1,32 @@
 """Tool-result summarisation -- one rule per tool.
 
 `tool_result` records a *summary*, never the payload: counts, the distribution over
-enumerated status fields, and the identifiers the reply used. Enough to explain the
+enumerated status fields, and the identifiers the result returned. Enough to explain the
 reply, never more -- the trace is served over the API and retained for audit, so copying
 every field of every record into it multiplies exposure for no gain (TRACEABILITY.md,
 ARCHITECTURE.md section 5).
 
-`referenced` is the loose end: in the agentic loop `summarise` runs before any reply
-exists, so it cannot yet know which identifiers a reply will cite. Called with
-`referenced=None` it lists every identifier the result returned; once a reply is
-rendered the orchestrator calls it again with the ids that reply actually used, and the
-list narrows to those. `statuses` is ordered by enum declaration rather than row order,
-so the summary is stable to serialise and to assert on.
+`referenced` lists every identifier the result returned. Narrowing it to just the ids the
+rendered reply cites is a deferred refinement: it only becomes meaningful once the
+pipeline renders a reply (phase 7), and doing it means either a second pass or building
+the `tool_result` step at persist time rather than in the loop -- a call the orchestrator
+will own when it exists. Until then the full list is a safe superset: a reader can still
+trace any statement in the reply to a record.
+
+`statuses` is ordered by enum declaration rather than row order, so the summary is stable
+to serialise and to assert on.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable
+from enum import StrEnum
 from typing import Any
 
 from support_assistant.domain import ToolResult
 from support_assistant.enums import InvoiceStatus, SessionStatus
 
 
-def summarise(
-    result: ToolResult, referenced: Iterable[str] | None = None
-) -> dict[str, Any]:
-    """Summarise one tool call's result. `referenced`, when given, is the set of
-    identifiers to keep in the summary's `referenced` list; omit it to keep them all.
+def summarise(result: ToolResult) -> dict[str, Any]:
+    """Summarise one tool call's result.
 
     Raises `ValueError` for a tool with no summariser -- a fourth tool must add one here
     rather than silently getting an empty summary.
@@ -34,48 +35,38 @@ def summarise(
         rule = _SUMMARISERS[result.tool]
     except KeyError:
         raise ValueError(f"no summariser for tool {result.tool!r}") from None
-    return rule(result, referenced)
+    return rule(result)
 
 
-def _summarise_user(result: ToolResult, referenced: Iterable[str] | None) -> dict[str, Any]:
+def _summarise_user(result: ToolResult) -> dict[str, Any]:
     user = result.records[0]
     return {"found": True, "plan": user.plan}
 
 
-def _summarise_invoices(
-    result: ToolResult, referenced: Iterable[str] | None
-) -> dict[str, Any]:
-    return _collection(
-        result, InvoiceStatus, id_of=lambda inv: inv.invoice_id, referenced=referenced
-    )
+def _summarise_invoices(result: ToolResult) -> dict[str, Any]:
+    return _summarise_collection(result, InvoiceStatus, id_of=lambda inv: inv.invoice_id)
 
 
-def _summarise_sessions(
-    result: ToolResult, referenced: Iterable[str] | None
-) -> dict[str, Any]:
-    return _collection(
-        result, SessionStatus, id_of=lambda sess: sess.session_id, referenced=referenced
-    )
+def _summarise_sessions(result: ToolResult) -> dict[str, Any]:
+    return _summarise_collection(result, SessionStatus, id_of=lambda s: s.session_id)
 
 
-def _collection(
+def _summarise_collection(
     result: ToolResult,
-    status_enum: type,
+    status_enum: type[StrEnum],
     *,
-    id_of: Any,
-    referenced: Iterable[str] | None,
+    id_of: Callable[[Any], str],
 ) -> dict[str, Any]:
     counts: dict[Any, int] = {}
     for record in result.records:
         counts[record.status] = counts.get(record.status, 0) + 1
     statuses = {member.value: counts[member] for member in status_enum if member in counts}
 
-    ids = [id_of(record) for record in result.records]
-    if referenced is not None:
-        keep = set(referenced)
-        ids = [identifier for identifier in ids if identifier in keep]
-
-    return {"count": len(result.records), "statuses": statuses, "referenced": ids}
+    return {
+        "count": len(result.records),
+        "statuses": statuses,
+        "referenced": [id_of(record) for record in result.records],
+    }
 
 
 _SUMMARISERS = {
