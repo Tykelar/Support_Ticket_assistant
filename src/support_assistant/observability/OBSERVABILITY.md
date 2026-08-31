@@ -116,9 +116,9 @@ One JSON object per line, one line per pipeline step, always carrying `ticket_id
 
 ```json
 {"ts":"2026-08-31T10:14:02.113Z","level":"info","event":"tool_call",
- "ticket_id":"t_9f3a2b1c","tool":"get_invoices","iteration":2}
+ "ticket_id":"t_4f0c9a7b21e84d3fa6c5b8e0d1927354","tool":"get_invoices","iteration":2}
 {"ts":"2026-08-31T10:14:02.119Z","level":"warning","event":"handoff",
- "ticket_id":"t_9f3a2b1c","reason":"DATA_NOT_FOUND","detail":"no invoices for u_004"}
+ "ticket_id":"t_4f0c9a7b21e84d3fa6c5b8e0d1927354","reason":"DATA_NOT_FOUND","detail":"no invoices for u_004"}
 ```
 
 **Logs and traces are not the same thing and do not serve the same reader.**

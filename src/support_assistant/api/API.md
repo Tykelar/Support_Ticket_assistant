@@ -35,11 +35,15 @@ Accepts a ticket, schedules the pipeline, returns immediately.
 **Response — `202 Accepted`**
 
 ```json
-{ "id": "t_9f3a2b1c", "status": "processing" }
+{ "id": "t_4f0c9a7b21e84d3fa6c5b8e0d1927354", "status": "processing" }
 ```
 
 `202`, not `201`: the resource exists, but the work it represents has not finished. The
 pipeline runs as a `BackgroundTask` after the response is sent.
+
+**The id is 128 bits of randomness**, hex-encoded behind a `t_` prefix. Not a sequence and
+not a UUIDv4 timestamp — because the id is the only thing protecting a ticket's trace
+(see below), so it must not be guessable or enumerable.
 
 **Errors**
 
@@ -65,7 +69,7 @@ from it alone.
 
 ```json
 {
-  "id": "t_9f3a2b1c",
+  "id": "t_4f0c9a7b21e84d3fa6c5b8e0d1927354",
   "user_id": "u_002",
   "status": "replied",
   "reply": "Hi Ben, your invoice inv_204 for EUR 42.10 has a status of failed...",
@@ -146,8 +150,7 @@ Not part of the brief's contract; they exist to make the service operable.
 | `GET /health` | `200 {"status": "ok"}` once the database is reachable. Backs the container `HEALTHCHECK` ([PACKAGING.md](../../../deploy/PACKAGING.md)) |
 | `GET /metrics` | the in-process counters and histograms from [OBSERVABILITY.md](../observability/OBSERVABILITY.md) |
 
-Both are unauthenticated, which is fine here and would not be in production — `/metrics`
-in particular exposes ticket volumes and handoff reasons.
+Both are unauthenticated. So is everything else — see below.
 
 ---
 
@@ -168,13 +171,34 @@ and a stub `LLMClient` without touching module-level globals.
 
 ---
 
-## Deliberately absent
+## Security: what is not here, stated once
 
-- **Authentication.** Out of scope for the exercise. A real deployment needs it before
-  anything else on this list.
-- **Rate limiting.** Each ticket triggers model and tool work; an unauthenticated `POST`
-  is a trivial amplification vector.
-- **Pagination on the trace.** Traces are bounded by `MAX_ITERATIONS`, so they cannot
-  grow unboundedly.
-- **A cancel or retry endpoint.** Terminal states are final; a re-run would be a new
-  ticket.
+**The API is entirely unauthenticated, and that is a real vulnerability, not an oversight.**
+Anyone who can reach the service can post tickets and read any ticket whose id they hold.
+
+Concretely, what an attacker with a ticket id gets: the customer's name, their invoice
+ids, amounts and payment statuses, their charging stations — the whole trace, which exists
+precisely to be complete. `GET /metrics` separately exposes ticket volumes and the handoff
+breakdown to anyone who asks.
+
+The only control is that ticket ids are 128 bits of randomness, so they cannot be
+enumerated or guessed. That makes the ids a bearer token in everything but name — which is
+a weak design, because bearer tokens leak through logs, referrers, and shared URLs, and
+these ones never expire.
+
+This is scope, deliberately: authentication is a large surface that exercises nothing the
+brief is evaluating, and building it badly would be worse than not building it. It is the
+first thing that must exist before this serves real customers.
+[ROADMAP: authentication and rate limiting](../../../docs/ROADMAP.md#authentication-and-rate-limiting).
+
+## Also deliberately absent
+
+- **Rate limiting** — each ticket triggers model and tool work, so an unauthenticated
+  `POST` is an amplification vector.
+  [ROADMAP](../../../docs/ROADMAP.md#authentication-and-rate-limiting).
+- **Idempotency** — a retried `POST` creates a second ticket and a second reply.
+  [ROADMAP](../../../docs/ROADMAP.md#idempotent-ticket-submission).
+- **Pagination on the trace** — traces are bounded by `MAX_ITERATIONS`, so they cannot
+  grow unboundedly. Not needed.
+- **A cancel or retry endpoint** — terminal states are final; a re-run would be a new
+  ticket. Not needed.

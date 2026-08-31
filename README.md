@@ -141,6 +141,22 @@ Tickets and traces go to SQLite behind a `TicketRepository` protocol, so the aud
 survives a restart. Tool fixtures stay as JSON files, so a reviewer can open one, change
 an amount, and re-run. [ADR 0003](docs/adr/0003-sqlite-behind-a-repository-protocol.md).
 
+### It is unauthenticated, and that is a vulnerability
+
+Worth stating plainly rather than burying. There is no authentication anywhere: anyone who
+can reach the service can post tickets, and anyone holding a ticket id can read that
+ticket's full trace — customer name, invoice ids, amounts, payment statuses, charging
+stations. `GET /metrics` exposes ticket volumes and handoff reasons to anyone.
+
+The only mitigation is that ticket ids are 128 bits of randomness, so they can't be
+enumerated. That makes an id a bearer token in all but name, and a poor one: it never
+expires and leaks through logs and shared URLs.
+
+This is a scoping decision, not an oversight. Auth is a large surface that exercises
+nothing the brief is evaluating, and a half-built version would be worse than none. It is
+the first thing required before this touches real customers —
+[how I'd do it](docs/ROADMAP.md#authentication-and-rate-limiting).
+
 ### Docs live with the code
 
 Each component is a package holding its own documentation. A document three directories
