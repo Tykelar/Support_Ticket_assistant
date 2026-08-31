@@ -85,6 +85,17 @@ Each is a package under `src/support_assistant/` holding its own code and docume
 | `tests/` | Test strategy and the three cases the brief names. | [TESTS.md](tests/TESTS.md) |
 | `deploy/` | Dockerfile, compose, and the two commands to run it. | [PACKAGING.md](deploy/PACKAGING.md) |
 
+Three modules sit at the package root rather than in a component, because several
+components need them and putting them in any one would force the sideways imports the
+dependency direction below rules out:
+
+| Module | Holds |
+|---|---|
+| `domain.py` | `Ticket`, `User`, `ChargingSession`, `Invoice` — the vocabulary of [CONTEXT.md](CONTEXT.md) as types |
+| `enums.py` | `Intent`, `TicketStatus`, `SessionStatus`, `InvoiceStatus`. Separate from `domain.py` only because a ticket carries its trace and a trace step names an intent; the enums are the layer both can depend on. Re-exported by `domain.py` |
+| `clock.py` | `Clock`, `SystemClock`, `FrozenClock` (ADR 0008) |
+
+
 ### Dependency direction
 
 ```
@@ -95,6 +106,7 @@ Each is a package under `src/support_assistant/` holding its own code and docume
                   '-->  storage         --> SQLite
 
     everything  -->  observability
+    everything  -->  domain / enums / clock
 ```
 
 Dependencies point one way: inward from `api`, downward from `pipeline`. Nothing imports

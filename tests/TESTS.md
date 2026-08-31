@@ -118,6 +118,8 @@ Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact)
 
 | File | Covers |
 |---|---|
+| `test_domain.py` | the enum members as a cross-component contract; ticket id shape and uniqueness; the status/reply/reason invariant in every direction, including `reply=""` on a handoff |
+| `test_fixtures.py` | the fixture data as data — every path has a user, `u_005` absent from every file, rows newest-first, and `u_006` malformed while `u_002` parses |
 | `test_tools.py` | the three tools; `UserNotFound` / `NoDataAvailable` / `ToolExecutionError`; empty-list-is-not-success (ADR 0009); **`u_006`'s malformed row fails without breaking `u_002`** |
 | `test_registry.py` | dispatch, unregistered name rejected, argument schema validation |
 | `test_fake_llm.py` | keyword rules per intent, **tie resolves to `unknown`**, step state machine ordering |
@@ -126,7 +128,7 @@ Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact)
 | `test_repository_contract.py` | **parametrised over both implementations** |
 | `test_tracing.py` | step ordering, `seq` monotonicity, **`ts` increasing with `seq`**, summarisation rules |
 | `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input |
-| `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps |
+| `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps; **a grep guard that no module outside `clock.py` reads the wall clock** |
 | `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable |
 
 ### Two that are easy to omit and worth keeping

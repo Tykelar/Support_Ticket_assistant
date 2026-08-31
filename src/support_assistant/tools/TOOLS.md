@@ -117,6 +117,20 @@ behaves, so the constraint costs nothing in realism.
 A regression test pins this: `u_006` must raise `ToolExecutionError` while `u_002` still
 returns its invoices from the same file.
 
+### Two shape choices the loaders inherit
+
+**Each file is a flat array and every row carries `user_id`.** That is the filter key,
+and it is stripped before the row is validated — which is why the models in `domain.py`
+list exactly the fields above and not `user_id`. A map keyed by user would work too; a
+flat table is how the real data source behaves, and it makes "filter first, validate
+second" the obvious implementation rather than a discipline.
+
+**Amounts, `kwh` and `cost` are JSON strings, not numbers** — `"42.10"`, not `42.10`.
+Parsed as a JSON float, `42.10` is `42.1` by the time a template interpolates it, and a
+reply stating `42.1` when the fixture says `42.10` is a literal no tool returned. Strings
+parse to `Decimal` exactly, which is also the type grounding layer 2 compares against
+([ADR 0004](../../../docs/adr/0004-two-layer-grounding-enforcement.md)).
+
 Users carry varied `language` values (`pt`, `en`, `fr`) even though replies are English
 only. The field is read and traced; not routing on it is a documented scope cut
 ([ADR 0006](../../../docs/adr/0006-fake-first-llm-behind-a-client-protocol.md)).
