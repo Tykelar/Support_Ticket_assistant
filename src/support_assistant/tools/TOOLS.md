@@ -183,11 +183,12 @@ true.
 
 ### Two shape choices the loaders inherit
 
-**Each file is a flat array and every row carries `user_id`.** That is the filter key,
-and it is stripped before the row is validated — which is why the models in `domain.py`
-list exactly the fields above and not `user_id`. A map keyed by user would work too; a
-flat table is how the real data source behaves, and it makes "filter first, validate
-second" the obvious implementation rather than a discipline.
+**Each file is a flat array and every row carries `user_id`.** That is the filter key.
+`ChargingSession` and `Invoice` do not declare it, so the loader drops it before
+validating those two; `User` *does* declare it — it is a genuine field there — so its row
+validates whole. A map keyed by user would work too; a flat table is how the real data
+source behaves, and it makes "filter first, validate second" the obvious implementation
+rather than a discipline.
 
 **Amounts, `kwh` and `cost` are JSON strings, not numbers** — `"42.10"`, not `42.10`.
 Parsed as a JSON float, `42.10` is `42.1` by the time a template interpolates it, and a
