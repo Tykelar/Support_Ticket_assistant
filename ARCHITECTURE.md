@@ -126,13 +126,18 @@ brief's categories; `unknown` is a handoff trigger, not a category to serve.
 
 **`MAX_ITERATIONS`** — 5, environment-configurable.
 
+**Time** — never read ambiently. Every timestamp comes from an injected `Clock`; nothing
+calls `datetime.now()` directly (ADR 0008).
+
 **Reply on handoff** — always `None`. Never an empty string, never a holding message.
 
 ---
 
 ## 5. Traceability
 
-Every ticket carries an ordered list of typed trace steps, persisted alongside it:
+Every ticket carries an ordered list of typed trace steps, persisted alongside it. Every
+step carries `seq` and `ts` — the timestamp comes from an injected clock so traces are
+auditable in production and reproducible in tests (ADR 0008).
 
 | Step | Records |
 |---|---|

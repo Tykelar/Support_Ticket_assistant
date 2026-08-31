@@ -3,11 +3,21 @@
 pytest. Every test is deterministic and offline — no network, no clock dependence, no
 randomness, no sleeps.
 
-That is a design property, not luck. `FakeLLM` has no clock and no RNG
-([ADR 0006](../docs/adr/0006-fake-first-llm-behind-a-client-protocol.md)), and Starlette's
-`TestClient` drains background tasks before returning the response
-([ADR 0001](../docs/adr/0001-asynchronous-in-process-processing.md)) — so an end-to-end
-test can `POST` and immediately `GET` a terminal status with no polling and no race.
+That is a design property, not luck. Three things make it hold:
+
+- `FakeLLM` has no clock and no RNG
+  ([ADR 0006](../docs/adr/0006-fake-first-llm-behind-a-client-protocol.md));
+- time is injected, never ambient — tests run a `FrozenClock` that starts at a fixed
+  instant and advances **10ms per call**
+  ([ADR 0008](../docs/adr/0008-injected-clock-with-advancing-test-double.md));
+- Starlette's `TestClient` drains background tasks before returning the response
+  ([ADR 0001](../docs/adr/0001-asynchronous-in-process-processing.md)), so an end-to-end
+  test can `POST` and immediately `GET` a terminal status with no polling and no race.
+
+The advancing tick is what makes timing assertable rather than merely deterministic: a
+known tick times a known number of steps is arithmetic, so `pipeline_duration_seconds` is
+covered like anything else, and a step recorded out of order shows up as a timestamp that
+moves backwards — which identical timestamps would hide.
 
 ---
 
@@ -114,8 +124,9 @@ Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact)
 | `test_factset.py` | projection from observations, `allowed_literals()` |
 | `test_grounding.py` | the checker, as above |
 | `test_repository_contract.py` | **parametrised over both implementations** |
-| `test_tracing.py` | step ordering, `seq` monotonicity, summarisation rules |
+| `test_tracing.py` | step ordering, `seq` monotonicity, **`ts` increasing with `seq`**, summarisation rules |
 | `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input |
+| `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps |
 | `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable |
 
 ### Two that are easy to omit and worth keeping

@@ -70,6 +70,11 @@ drifting upward means the model is taking longer routes, and the mass approachin
 `tool_calls_total{tool, outcome}` separates a broken tool from a model that stopped
 calling it.
 
+`pipeline_duration_seconds` is derived from trace step timestamps rather than measured
+separately, so it is covered by tests: the frozen clock advances a known tick, which makes
+the expected duration arithmetic rather than a wall-clock race
+([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
+
 ### The stranded-ticket gauge
 
 ```

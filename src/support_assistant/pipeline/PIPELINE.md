@@ -18,7 +18,7 @@ LLM proposes, guardrails report — the orchestrator decides.
 ```python
 def run_pipeline(ticket_id: str) -> None:
     ticket = repo.get(ticket_id)
-    trace = TraceRecorder(ticket_id)
+    trace = TraceRecorder(ticket_id, clock)
 
     try:
         # 1. Classify
@@ -155,9 +155,10 @@ pipeline/
   PIPELINE.md       this file
 ```
 
-Dependencies are injected — repository, LLM client, tool registry, trace recorder. No
-module-level singletons, so a test can assemble a pipeline with an in-memory repository
-and a stub client that misbehaves on purpose.
+Dependencies are injected — repository, LLM client, tool registry, trace recorder, and
+`Clock` ([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
+No module-level singletons and no ambient time, so a test can assemble a pipeline with an
+in-memory repository, a frozen clock, and a stub client that misbehaves on purpose.
 
 ---
 

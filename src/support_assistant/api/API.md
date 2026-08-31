@@ -72,24 +72,35 @@ from it alone.
   "handoff_reason": null,
   "created_at": "2026-08-31T10:14:02Z",
   "trace": [
-    { "seq": 1, "type": "intent_classified", "intent": "billing_question",
-      "matched_keywords": ["payment", "invoice"] },
-    { "seq": 2, "type": "llm_decision", "iteration": 1, "decision": "tool_call",
-      "tool": "get_user" },
-    { "seq": 3, "type": "tool_call", "tool": "get_user", "args": {"user_id": "u_002"} },
-    { "seq": 4, "type": "tool_result", "tool": "get_user", "ok": true,
-      "summary": {"found": true, "plan": "basic"} },
-    { "seq": 5, "type": "llm_decision", "iteration": 2, "decision": "tool_call",
-      "tool": "get_invoices" },
-    { "seq": 6, "type": "tool_call", "tool": "get_invoices", "args": {"user_id": "u_002"} },
-    { "seq": 7, "type": "tool_result", "tool": "get_invoices", "ok": true,
-      "summary": {"count": 3, "statuses": {"paid": 2, "failed": 1}} },
-    { "seq": 8, "type": "llm_decision", "iteration": 3, "decision": "reply" },
-    { "seq": 9, "type": "grounding_check", "passed": true, "literals_checked": 3 },
-    { "seq": 10, "type": "final_decision", "outcome": "replied" }
+    { "seq": 1, "ts": "2026-08-31T10:14:02.101Z", "type": "intent_classified",
+      "intent": "billing_question", "matched_keywords": ["payment", "invoice"] },
+    { "seq": 2, "ts": "2026-08-31T10:14:02.104Z", "type": "llm_decision",
+      "iteration": 1, "decision": "tool_call", "tool": "get_user" },
+    { "seq": 3, "ts": "2026-08-31T10:14:02.106Z", "type": "tool_call",
+      "tool": "get_user", "args": {"user_id": "u_002"} },
+    { "seq": 4, "ts": "2026-08-31T10:14:02.109Z", "type": "tool_result",
+      "tool": "get_user", "ok": true, "summary": {"found": true, "plan": "basic"} },
+    { "seq": 5, "ts": "2026-08-31T10:14:02.111Z", "type": "llm_decision",
+      "iteration": 2, "decision": "tool_call", "tool": "get_invoices" },
+    { "seq": 6, "ts": "2026-08-31T10:14:02.112Z", "type": "tool_call",
+      "tool": "get_invoices", "args": {"user_id": "u_002"} },
+    { "seq": 7, "ts": "2026-08-31T10:14:02.117Z", "type": "tool_result",
+      "tool": "get_invoices", "ok": true,
+      "summary": {"count": 3, "statuses": {"paid": 2, "failed": 1},
+                  "referenced": ["inv_204"]} },
+    { "seq": 8, "ts": "2026-08-31T10:14:02.119Z", "type": "llm_decision",
+      "iteration": 3, "decision": "reply" },
+    { "seq": 9, "ts": "2026-08-31T10:14:02.121Z", "type": "grounding_check",
+      "passed": true, "literals_checked": 3 },
+    { "seq": 10, "ts": "2026-08-31T10:14:02.122Z", "type": "final_decision",
+      "outcome": "replied" }
   ]
 }
 ```
+
+Every step carries `seq` and `ts`; `ts` comes from an injected clock, so the trace is
+timestamped in production and reproducible in tests
+([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
 
 **Field contract**
 

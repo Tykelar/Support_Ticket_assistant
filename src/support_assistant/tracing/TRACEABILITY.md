@@ -11,7 +11,15 @@ dashboard, not a debugger — one API call.
 ## The trace
 
 An ordered list of typed steps, persisted with the ticket and returned by `GET`. Every
-step has `seq` (1-based, monotonic) and `type`; the rest of the fields depend on the type.
+step has `seq` (1-based, monotonic), `ts`, and `type`; the rest of the fields depend on
+the type.
+
+`ts` comes from an injected `Clock` rather than `datetime.now()`
+([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)). In
+production that is real UTC time; in tests it is a frozen clock advancing a fixed 10ms
+tick, so traces stay byte-for-byte reproducible while durations remain real enough to
+assert on. Timestamps must increase with `seq`, and a contract test enforces it — which is
+the check a constant clock would silently make impossible.
 
 | Step | Emitted | Carries |
 |---|---|---|
@@ -39,7 +47,8 @@ precisely the case worth seeing.
 `tool_result` records a **summary**, not the payload:
 
 ```json
-{ "seq": 7, "type": "tool_result", "tool": "get_invoices", "ok": true,
+{ "seq": 7, "ts": "2026-08-31T10:14:02.113Z",
+  "type": "tool_result", "tool": "get_invoices", "ok": true,
   "summary": { "count": 3, "statuses": { "paid": 2, "failed": 1 },
                "referenced": ["inv_204"] } }
 ```
@@ -103,8 +112,11 @@ this*; a traceback answers *why the code broke*. Different audiences, different 
 
 ## Recording
 
+The recorder is constructed with a `Clock` and stamps every step it appends:
+
 ```python
 class TraceRecorder:
+    def __init__(self, ticket_id: str, clock: Clock) -> None
     def intent_classified(self, intent, matched_keywords) -> None
     def llm_decision(self, iteration, step) -> None
     def tool_call(self, tool, args) -> None

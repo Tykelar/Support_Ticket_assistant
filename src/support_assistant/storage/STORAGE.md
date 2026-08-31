@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS tickets (
 CREATE TABLE IF NOT EXISTS trace_steps (
     ticket_id TEXT    NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     seq       INTEGER NOT NULL,
+    ts        TEXT    NOT NULL,          -- ISO-8601 UTC, from the injected Clock
     type      TEXT    NOT NULL,
     payload   TEXT    NOT NULL,          -- JSON, shape depends on `type`
     PRIMARY KEY (ticket_id, seq)
@@ -104,7 +105,8 @@ from ADR 0001's known limitation, and the source of the stranded-ticket gauge in
 
 Step types have different fields ([TRACEABILITY.md](../tracing/TRACEABILITY.md)), so a
 typed column per field would be a wide sparse table. `(ticket_id, seq)` gives ordering and
-identity; `type` supports filtering; `payload` holds the rest.
+identity; `ts` and `type` are promoted to columns because they are present on every step
+and are the two fields worth filtering or sorting by; `payload` holds the rest.
 
 The cost is that steps are not queryable by their inner fields in SQL. Acceptable — the
 access pattern is "fetch every step for one ticket, in order", which is exactly what the
