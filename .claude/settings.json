@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"UserPromptSubmit\\\",\\\"additionalContext\\\":\\\"Project rule: if this request is a complex or multi-step task, enter plan mode and get the plan approved before making changes. Skip for trivial single-step requests.\\\"},\\\"suppressOutput\\\":true}\"",
+            "statusMessage": "Checking plan-mode rule"
+          }
+        ]
+      }
+    ]
+  }
+}
