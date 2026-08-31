@@ -41,6 +41,7 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "User",
+    "format_amount",
     "new_ticket_id",
 ]
 """The enums are defined in `enums.py` so that `tracing.models` can name them without
@@ -55,6 +56,18 @@ unguessable and non-enumerable -- not a sequence, and not a timestamped UUID."""
 def new_ticket_id() -> str:
     """A fresh ticket id: `t_` followed by 32 hex characters."""
     return f"t_{secrets.token_hex(TICKET_ID_BYTES)}"
+
+
+def format_amount(value: Decimal) -> str:
+    """How a money or kWh amount is written in a reply and in `FactSet.allowed_literals()`
+    -- always two decimal places.
+
+    Shared so `guardrails/factset.py` and `llm/templates.py` produce byte-identical text
+    without importing each other (ARCHITECTURE.md section 3). Grounding compares numeric
+    literals as `Decimal`, so this only fixes the *text form*: `42.1` and `42.10` are the
+    same fact either way.
+    """
+    return f"{value:.2f}"
 
 
 # --------------------------------------------------------------------------------------
