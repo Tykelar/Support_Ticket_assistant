@@ -9,20 +9,29 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from support_assistant.domain import (
     ChargingSession,
+    Handoff,
     Intent,
     Invoice,
     InvoiceStatus,
+    Observation,
+    Reply,
+    ReplyTemplate,
     SessionStatus,
+    Step,
     Ticket,
     TicketStatus,
+    ToolCall,
+    ToolResult,
     User,
     new_ticket_id,
 )
 from support_assistant.guardrails.handoff import HandoffReason
+
+_STEP = TypeAdapter(Step)
 
 # --------------------------------------------------------------------------------------
 # Enums -- the members are a cross-component contract, so they are pinned by value.
@@ -64,7 +73,7 @@ def test_invoice_status_members_match_tools_md() -> None:
 
 @pytest.mark.parametrize(
     "enum_cls",
-    [Intent, TicketStatus, SessionStatus, InvoiceStatus, HandoffReason],
+    [Intent, TicketStatus, SessionStatus, InvoiceStatus, HandoffReason, ReplyTemplate],
 )
 def test_enums_serialise_as_their_string_value(enum_cls: type) -> None:
     # The API and the trace payloads are JSON; an enum that serialises as
@@ -322,3 +331,83 @@ def test_ticket_accepts_the_limits_exactly() -> None:
     ticket = _ticket(subject="x" * 200, body="y" * 5000)
     assert len(ticket.subject) == 200
     assert len(ticket.body) == 5000
+
+
+# --------------------------------------------------------------------------------------
+# What the model decides -- ToolCall | Reply | Handoff, and the Observation that pairs a
+# tool call with its result. LLM.md and PIPELINE.md; the union return type of
+# LLMClient.decide_next_step.
+# --------------------------------------------------------------------------------------
+
+
+def test_reply_template_members_match_llm_md() -> None:
+    assert {t.value for t in ReplyTemplate} == {
+        "billing_all_paid",
+        "billing_failed",
+        "billing_pending",
+        "session_completed",
+        "session_interrupted",
+    }
+
+
+def test_only_a_tool_call_carries_a_tool_name() -> None:
+    # This is the exact contract PIPELINE.md relies on:
+    #   trace.llm_decision(i, step.decision, tool=getattr(step, "tool", None))
+    # and LLMDecision's validator (tool named iff decision == "tool_call").
+    tool_call = ToolCall(tool="get_user", args={"user_id": "u_002"})
+    reply = Reply(template=ReplyTemplate.BILLING_ALL_PAID)
+    handoff = Handoff(reason=HandoffReason.UNSUPPORTED_INTENT)
+
+    assert (tool_call.decision, getattr(tool_call, "tool", None)) == ("tool_call", "get_user")
+    assert (reply.decision, getattr(reply, "tool", None)) == ("reply", None)
+    assert (handoff.decision, getattr(handoff, "tool", None)) == ("handoff", None)
+
+
+def test_the_step_union_discriminates_on_decision() -> None:
+    raw = [
+        {"decision": "tool_call", "tool": "get_user", "args": {"user_id": "u_002"}},
+        {"decision": "reply", "template": "billing_failed"},
+        {"decision": "handoff", "reason": "TOOL_ERROR"},
+    ]
+    steps = [_STEP.validate_python(entry) for entry in raw]
+    assert [type(s) for s in steps] == [ToolCall, Reply, Handoff]
+    assert steps[1].template is ReplyTemplate.BILLING_FAILED
+    assert steps[2].reason is HandoffReason.TOOL_ERROR
+
+
+def test_reply_rejects_a_template_outside_the_vocabulary() -> None:
+    with pytest.raises(ValidationError):
+        Reply(template="billing_overdue")
+
+
+def test_handoff_rejects_a_reason_outside_the_enum() -> None:
+    with pytest.raises(ValidationError):
+        Handoff(reason="ESCALATED")
+
+
+def test_decision_types_are_frozen() -> None:
+    tool_call = ToolCall(tool="get_user", args={"user_id": "u_002"})
+    with pytest.raises(ValidationError):
+        tool_call.tool = "get_invoices"
+
+
+def test_observation_pairs_a_tool_call_with_its_result() -> None:
+    obs = Observation(
+        step=ToolCall(tool="get_user", args={"user_id": "u_002"}),
+        result=ToolResult(
+            tool="get_user",
+            records=[User(user_id="u_002", name="Ben Carter", language="en", plan="basic")],
+        ),
+    )
+    assert obs.step.tool == "get_user"
+    assert obs.result.records[0].name == "Ben Carter"
+
+
+def test_observation_rejects_a_terminal_step() -> None:
+    # Reply and Handoff end the loop; only a ToolCall ever yields an observation
+    # (PIPELINE.md appends one solely in the `case ToolCall()` branch).
+    with pytest.raises(ValidationError):
+        Observation(
+            step=Reply(template=ReplyTemplate.BILLING_ALL_PAID),
+            result=ToolResult(tool="get_user", records=[]),
+        )
