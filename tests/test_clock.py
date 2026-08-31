@@ -60,7 +60,7 @@ def test_frozen_clock_readings_strictly_increase() -> None:
     # clock would make that assertion vacuous.
     clock = FrozenClock()
     readings = [clock.now() for _ in range(5)]
-    assert all(b > a for a, b in zip(readings, readings[1:], strict=True))
+    assert all(b > a for a, b in zip(readings, readings[1:], strict=False))
 
 
 def test_frozen_clock_honours_a_custom_tick() -> None:
