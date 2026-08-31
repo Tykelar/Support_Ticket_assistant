@@ -20,6 +20,16 @@ class LLMClient(Protocol):
     ) -> ToolCall | Reply | Handoff: ...
 ```
 
+`ToolCall`, `Reply`, `Handoff` (discriminated on `decision`) and `Observation` live in
+[`domain.py`](../../../ARCHITECTURE.md), not in this package: `guardrails/` consumes
+`Observation` for `FactSet.from_observations` and ARCHITECTURE.md §3 forbids it importing
+`llm/`. Same reason `ToolResult` sits there.
+
+`classify_intent` returns the `Intent` only. The `matched_keywords` that the
+`intent_classified` trace step carries are not on this interface — for a real model
+"matched keywords" is meaningless. How the orchestrator gets that evidence out of a
+classification is a phase-7 (pipeline) question; today nothing calls this in anger.
+
 Two things about this signature carry weight.
 
 **The return type is a discriminated union, not a string.** A real provider's tool-call
@@ -55,13 +65,15 @@ billing and charging is genuinely ambiguous, and guessing between two templates 
 exactly the kind of confident-and-wrong behaviour the system is built to avoid. Failing
 closed on ambiguity is the same instinct as ADR 0005, applied to classification.
 
-The matched keywords are recorded in the `intent_classified` trace step, so a support
-agent can see *why* a ticket was categorised as it was — not just that it was.
+A support agent sees *why* a ticket was categorised as it was — not just that it was —
+from the `matched_keywords` on the `intent_classified` trace step (produced by the
+pipeline, see the note under "The protocol").
 
 ### Step decision
 
-A small state machine over the observation history. Given the intent and what has already
-been gathered:
+A small state machine over the observation history. `FakeLLM` re-derives the intent from
+the ticket (it holds no state between calls); given that and what has already been
+gathered:
 
 ```
 1. no get_user observation yet          -> ToolCall(get_user, {user_id})
@@ -69,8 +81,20 @@ been gathered:
      and no get_invoices observation    -> ToolCall(get_invoices, {user_id})
 3. intent == charging_session_problem
      and no get_charging_sessions obs.  -> ToolCall(get_charging_sessions, {user_id})
-4. everything the intent needs is present -> Reply(template, facts)
+4. everything the intent needs is present -> Reply(template)
 ```
+
+`Reply` names the template only. Projecting the `FactSet` from history and rendering are
+the orchestrator's step, not the model's (PIPELINE.md); the fake picks the template from
+the statuses in the gathered records — `billing_failed` if any invoice failed, else
+`billing_pending` if any is pending, else `billing_all_paid`; for charging, from the most
+recent session. Being asked to decide for an `unknown` intent is a contract violation
+(the pipeline hands those off first), so `decide_next_step` raises rather than guess.
+
+The tool names in steps 1–3 are checked against `registry.registered()` before the call
+is built, so the registry stays the one place tool names are defined — adding a fourth
+tool is an entry there plus an intent→tool mapping, not a hunt for literals. This is the
+one sanctioned `llm/ → tools/` read (see `registry.registered()`'s docstring).
 
 `get_user` comes first for every intent because the reply is addressed by name, and the
 name is a fact that must be sourced like any other.
@@ -127,11 +151,12 @@ circuit breaker, response schema validation, and a golden-file evaluation set �
 
 ```
 llm/
-  __init__.py
-  protocol.py    LLMClient, ToolCall, Reply, Handoff, Observation
+  __init__.py    empty, like every component package
+  protocol.py    LLMClient (the ToolCall | Reply | Handoff union and Observation it
+                 names are in domain.py -- see "The protocol")
   fake.py        FakeLLM: keyword rules + step state machine
-  templates.py   reply templates + TEMPLATE_SAFE_LITERALS per template
-  ollama.py      OllamaLLM (optional, off by default)
+  templates.py   reply templates + TEMPLATE_SAFE_LITERALS per template  (phase 6)
+  ollama.py      OllamaLLM (optional, off by default)                    (phase 11)
   LLM.md         this file
 ```
 
