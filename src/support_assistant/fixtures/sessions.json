@@ -1,0 +1,47 @@
+[
+  {
+    "user_id": "u_001",
+    "session_id": "sess_1001",
+    "station": "Porto Norte",
+    "kwh": "31.50",
+    "cost": "12.60",
+    "status": "completed",
+    "started_at": "2026-08-20T18:32:00Z"
+  },
+  {
+    "user_id": "u_002",
+    "session_id": "sess_2001",
+    "station": "Bristol Temple Quay",
+    "kwh": "24.80",
+    "cost": "9.92",
+    "status": "completed",
+    "started_at": "2026-08-14T07:45:00Z"
+  },
+  {
+    "user_id": "u_003",
+    "session_id": "sess_3002",
+    "station": "Lyon Part-Dieu",
+    "kwh": "6.20",
+    "cost": "2.48",
+    "status": "interrupted",
+    "started_at": "2026-08-22T14:05:00Z"
+  },
+  {
+    "user_id": "u_003",
+    "session_id": "sess_3001",
+    "station": "Lyon Confluence",
+    "kwh": "28.40",
+    "cost": "11.36",
+    "status": "completed",
+    "started_at": "2026-08-09T11:20:00Z"
+  },
+  {
+    "user_id": "u_006",
+    "session_id": "sess_6001",
+    "station": "Krakow Kazimierz",
+    "kwh": "19.75",
+    "cost": "7.90",
+    "status": "completed",
+    "started_at": "2026-08-05T16:10:00Z"
+  }
+]

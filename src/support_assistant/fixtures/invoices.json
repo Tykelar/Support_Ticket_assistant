@@ -1,0 +1,66 @@
+[
+  {
+    "user_id": "u_001",
+    "invoice_id": "inv_102",
+    "amount": "22.75",
+    "currency": "EUR",
+    "status": "paid",
+    "issued_at": "2026-08-01T09:00:00Z"
+  },
+  {
+    "user_id": "u_001",
+    "invoice_id": "inv_101",
+    "amount": "18.40",
+    "currency": "EUR",
+    "status": "paid",
+    "issued_at": "2026-07-01T09:00:00Z"
+  },
+  {
+    "user_id": "u_002",
+    "invoice_id": "inv_204",
+    "amount": "42.10",
+    "currency": "EUR",
+    "status": "failed",
+    "issued_at": "2026-08-15T09:00:00Z"
+  },
+  {
+    "user_id": "u_002",
+    "invoice_id": "inv_203",
+    "amount": "38.90",
+    "currency": "EUR",
+    "status": "paid",
+    "issued_at": "2026-07-15T09:00:00Z"
+  },
+  {
+    "user_id": "u_002",
+    "invoice_id": "inv_202",
+    "amount": "31.20",
+    "currency": "EUR",
+    "status": "paid",
+    "issued_at": "2026-06-15T09:00:00Z"
+  },
+  {
+    "user_id": "u_003",
+    "invoice_id": "inv_302",
+    "amount": "15.30",
+    "currency": "EUR",
+    "status": "pending",
+    "issued_at": "2026-08-10T09:00:00Z"
+  },
+  {
+    "user_id": "u_003",
+    "invoice_id": "inv_301",
+    "amount": "27.60",
+    "currency": "EUR",
+    "status": "paid",
+    "issued_at": "2026-07-10T09:00:00Z"
+  },
+  {
+    "user_id": "u_006",
+    "invoice_id": "inv_601",
+    "amount": "forty-two euros",
+    "currency": "EUR",
+    "status": "paid",
+    "issued_at": "2026-08-05T09:00:00Z"
+  }
+]

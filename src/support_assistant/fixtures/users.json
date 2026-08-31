@@ -1,0 +1,32 @@
+[
+  {
+    "user_id": "u_001",
+    "name": "Ana Ribeiro",
+    "language": "pt",
+    "plan": "basic"
+  },
+  {
+    "user_id": "u_002",
+    "name": "Ben Carter",
+    "language": "en",
+    "plan": "basic"
+  },
+  {
+    "user_id": "u_003",
+    "name": "Chloe Martin",
+    "language": "fr",
+    "plan": "premium"
+  },
+  {
+    "user_id": "u_004",
+    "name": "Dmitri Volkov",
+    "language": "en",
+    "plan": "basic"
+  },
+  {
+    "user_id": "u_006",
+    "name": "Eva Nowak",
+    "language": "pt",
+    "plan": "premium"
+  }
+]
