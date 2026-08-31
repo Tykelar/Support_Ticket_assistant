@@ -20,12 +20,14 @@ from support_assistant.tracing.models import TraceStep
 
 __all__ = [
     "ChargingSession",
+    "FixtureRecord",
     "Intent",
     "Invoice",
     "InvoiceStatus",
     "SessionStatus",
     "Ticket",
     "TicketStatus",
+    "ToolResult",
     "User",
     "new_ticket_id",
 ]
@@ -95,6 +97,29 @@ class Invoice(FixtureRecord):
     currency: str
     status: InvoiceStatus
     issued_at: datetime
+
+
+class ToolResult(BaseModel):
+    """What a tool returned for one call, as the rest of the system sees it.
+
+    The tools themselves return domain types -- `get_user(user_id) -> User`. The *registry*
+    wraps that into this uniform shape, so result summarisation (TRACEABILITY.md) and
+    `FactSet` projection (GUARDRAILS.md) each have one code path: `records` is always a
+    list, and `get_user` simply yields one element. Per-tool rules still dispatch on `tool`.
+
+    It lives here rather than in `tools/` because `llm/` and `guardrails/` both consume it
+    and ARCHITECTURE.md forbids them importing `tools/`.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool: str
+    """Which tool produced this."""
+
+    records: list[FixtureRecord]
+    """`User | ChargingSession | Invoice`. Pydantic keeps each element at its concrete
+    subclass (`revalidate_instances` defaults to never), so the uniform list type does not
+    flatten a record's fields away."""
 
 
 # --------------------------------------------------------------------------------------
