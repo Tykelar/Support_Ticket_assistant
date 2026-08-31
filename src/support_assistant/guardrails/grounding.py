@@ -1,9 +1,11 @@
-"""Grounding layer 2 -- post-hoc verification of a rendered reply.
+"""`Violation` -- the evidence a failed grounding check records.
 
-This module currently holds only `Violation`, the evidence a failed check records. The
-`GroundingChecker` and the literal extraction rules arrive with the guardrails phase;
-the model lands here first because the `grounding_check` trace step carries it
-(TRACEABILITY.md).
+This module holds only `Violation` and imports nothing from the package: `tracing.models`
+imports it for the `grounding_check` trace step, and `domain` imports `tracing.models`, so
+anything here that reached back into `domain` would close an import cycle.
+
+`GroundingChecker` and the literal-extraction rules live in `checker.py` for exactly that
+reason -- they need `FactSet`, which is downstream of `domain` (GUARDRAILS.md section 3).
 """
 
 from pydantic import BaseModel, ConfigDict, Field

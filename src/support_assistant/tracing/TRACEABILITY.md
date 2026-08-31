@@ -164,6 +164,8 @@ Given that a stranded ticket needs a reaper either way
 whether the list is empty but `literals_checked` does not, and it is what distinguishes a
 check that passed from one that had nothing to look at: `passed: true, literals_checked: 0`
 is a reply the checker never really inspected, and a bare `passed: true` would hide it.
+The orchestrator supplies the count as `len(GroundingChecker.extract(reply))` — the same
+extraction `verify` runs — so it is exactly the number of literals that were checked.
 
 The recorder is injected, not global, so tests assert on the recorded steps directly.
 

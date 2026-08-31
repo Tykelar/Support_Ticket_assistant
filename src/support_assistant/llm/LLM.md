@@ -109,22 +109,39 @@ Note that the fake terminates in at most three iterations, comfortably inside th
 
 ### Reply templates
 
-| Template | Chosen when |
-|---|---|
-| `billing_all_paid` | every invoice is `paid` |
-| `billing_failed` | at least one invoice is `failed` |
-| `billing_pending` | at least one `pending`, none `failed` |
-| `session_completed` | the most recent session is `completed` |
-| `session_interrupted` | the most recent session is `interrupted` or `failed` |
+`FakeLLM` picks the template; `templates.py` turns it into prose.
+
+| Template | Chosen when | Interpolates (all from the `FactSet`) | `TEMPLATE_SAFE_LITERALS` |
+|---|---|---|---|
+| `billing_all_paid` | every invoice is `paid` | name | — |
+| `billing_failed` | at least one invoice is `failed` | name, first failed invoice id / amount / currency | — |
+| `billing_pending` | at least one `pending`, none `failed` | name, first pending invoice id / amount / currency | `{"3"}` |
+| `session_completed` | the most recent session is `completed` | name, station, kWh, cost of `sessions[0]` | — |
+| `session_interrupted` | the most recent session is `interrupted` or `failed` | name, station, **status**, kWh, cost of `sessions[0]` | — |
+
+```python
+render(template: ReplyTemplate, facts: FactSet) -> str   # the reply text
+spec_for(template: ReplyTemplate) -> Template             # for GroundingChecker.verify
+```
+
+The orchestrator projects the `FactSet` from history, calls `render`, then passes the
+rendered text, the same `FactSet`, and `spec_for(template)` to `GroundingChecker.verify`.
 
 Templates interpolate **only** from the `FactSet`. There is no code path from a template
 to a value that no tool returned — that is grounding layer 1
 ([ADR 0004](../../../docs/adr/0004-two-layer-grounding-enforcement.md)).
+`session_interrupted` interpolates the session's own status word, so it stays grounded
+whether the session is `interrupted` or `failed`.
 
 Any number a template states in its own static prose ("within 3 business days") must be
 declared in that template's `TEMPLATE_SAFE_LITERALS`, or the post-hoc grounding checker
 will flag it and hand the ticket off. This is a deliberate speed bump: it makes adding
-unsourced numbers to prose an explicit, reviewable act.
+unsourced numbers to prose an explicit, reviewable act. The only one today is the `"3"` in
+`billing_pending`.
+
+`templates.py` imports `FactSet` under `TYPE_CHECKING` only: `render` needs its shape for
+type-checking but duck-types at runtime, so `llm/` and `guardrails/` stay independent
+(ARCHITECTURE.md §3) and meet only in the orchestrator.
 
 ---
 
@@ -155,7 +172,7 @@ llm/
   protocol.py    LLMClient (the ToolCall | Reply | Handoff union and Observation it
                  names are in domain.py -- see "The protocol")
   fake.py        FakeLLM: keyword rules + step state machine
-  templates.py   reply templates + TEMPLATE_SAFE_LITERALS per template  (phase 6)
+  templates.py   the 5 reply bodies, render(), spec_for(), TEMPLATE_SAFE_LITERALS
   ollama.py      OllamaLLM (optional, off by default)                    (phase 11)
   LLM.md         this file
 ```

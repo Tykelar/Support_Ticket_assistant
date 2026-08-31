@@ -95,16 +95,20 @@ this alone makes invented data impossible.
 Runs on the **rendered reply**, unconditionally, regardless of which client produced it.
 
 ```python
+GroundingChecker.extract(reply: str) -> list[Literal]
 GroundingChecker.verify(reply: str, facts: FactSet, template: Template) -> list[Violation]
 ```
 
-It extracts literals from the finished text and checks each against
-`facts.allowed_literals() | template.TEMPLATE_SAFE_LITERALS`:
+`extract` pulls every factual token out of the finished text; `verify` checks each
+against the `FactSet` and `template.TEMPLATE_SAFE_LITERALS` and returns one `Violation`
+per unsourced one. The orchestrator records `len(extract(reply))` as `literals_checked`
+and hands off on a non-empty `verify` result — the guardrail reports, the orchestrator
+decides.
 
 | Class | Extraction | Normalisation |
 |---|---|---|
 | Numbers | `\d+(?:[.,]\d+)?` | parsed to `Decimal`, so `42.10`, `42,10` and `42.1` compare equal |
-| Identifiers | fixture id patterns (`inv_`, `sess_`, `u_`) | exact match |
+| Identifiers | fixture id patterns (`inv_`, `sess_`, `u_`) — matched and **masked out first**, so the digits inside `inv_204` are not re-read as an amount | exact match |
 | Status words | the closed vocabularies `paid\|pending\|failed`, `completed\|interrupted` | exact match against the statuses actually in the `FactSet` |
 
 Any literal not accounted for is a `Violation`. Violations fail closed:
@@ -148,9 +152,15 @@ from the tool results, and asserts the ticket reaches `handed_off` with
 ```
 guardrails/
   __init__.py
-  factset.py       FactSet, projection from observations, allowed_literals()
-  grounding.py     GroundingChecker, Violation, literal extraction
+  factset.py       FactSet + InvoiceFact / SessionFact, projection from observations,
+                   allowed_literals() and the per-class allowed_* helpers
+  grounding.py     Violation only — a leaf so tracing.models can import it without a cycle
+  checker.py       GroundingChecker, Literal, the extraction regexes
   handoff.py       HandoffReason enum + typed failures
-  limits.py        MAX_ITERATIONS and the cap helper
+  limits.py        MAX_ITERATIONS + max_iterations()
   GUARDRAILS.md    this file
 ```
+
+`checker.py` is separate from `grounding.py` because it imports `FactSet` (→ `domain` →
+`tracing.models` → `guardrails.grounding`); keeping `GroundingChecker` out of
+`grounding.py` is what stops that path closing an import cycle.
