@@ -118,7 +118,7 @@ brief's categories; `unknown` is a handoff trigger, not a category to serve.
 | Reason | Raised when |
 |---|---|
 | `USER_NOT_FOUND` | `get_user` finds no such user |
-| `DATA_NOT_FOUND` | the user exists but the data the intent needs is absent |
+| `DATA_NOT_FOUND` | the user exists but the data the intent needs is absent (ADR 0009) |
 | `UNSUPPORTED_INTENT` | intent classified `unknown` |
 | `TOOL_ERROR` | a tool raised, or any unanticipated exception in the run |
 | `ITERATION_CAP_EXCEEDED` | the loop hit `MAX_ITERATIONS` without terminating |

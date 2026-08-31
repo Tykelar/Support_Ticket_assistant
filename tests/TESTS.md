@@ -118,7 +118,7 @@ Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact)
 
 | File | Covers |
 |---|---|
-| `test_tools.py` | the three tools; `UserNotFound` / `NoDataAvailable` / `ToolExecutionError`; empty-list-is-not-success |
+| `test_tools.py` | the three tools; `UserNotFound` / `NoDataAvailable` / `ToolExecutionError`; empty-list-is-not-success (ADR 0009); **`u_006`'s malformed row fails without breaking `u_002`** |
 | `test_registry.py` | dispatch, unregistered name rejected, argument schema validation |
 | `test_fake_llm.py` | keyword rules per intent, **tie resolves to `unknown`**, step state machine ordering |
 | `test_factset.py` | projection from observations, `allowed_literals()` |

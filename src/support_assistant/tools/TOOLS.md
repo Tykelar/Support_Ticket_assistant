@@ -43,13 +43,21 @@ lets the orchestrator pick the right `HandoffReason`.
 | `NoDataAvailable` | the user exists, but has no rows of the requested kind | `DATA_NOT_FOUND` |
 | `ToolExecutionError` | the fixture is malformed, unreadable, or fails validation | `TOOL_ERROR` |
 
-An empty list is **not** a valid success here. "This user has no invoices" cannot be
-answered truthfully from nothing, so `NoDataAvailable` is raised rather than returning
-`[]` and letting a template render a reply about zero invoices. Failing closed beats
-replying vacuously.
+An empty list is **not** a valid success. `get_charging_sessions` and `get_invoices`
+raise `NoDataAvailable` rather than returning `[]`.
 
-`get_charging_sessions` and `get_invoices` also raise `UserNotFound` for an unknown user,
-so the reason is correct regardless of which tool the loop happens to reach first.
+The reasoning is worth stating, because the opposite looks obvious: "you have no invoices"
+*is* a truthful, grounded reply, and handing it off pages a human to write one sentence.
+The problem is that zero rows is ambiguous — genuinely none, not yet synced, or a broken
+join upstream — and the tool cannot tell which. The last two would produce a confident
+wrong statement about a customer's billing. Full argument, and the condition under which
+this should flip, in [ADR 0009](../../../docs/adr/0009-absent-data-is-a-handoff.md).
+
+**This applies only to the two collection-returning tools.** `get_user` returns a single
+record and cannot be empty: a user exists, or raises `UserNotFound`. Both collection tools
+also raise `UserNotFound` for an unknown user, so the reason is correct regardless of
+which tool the loop reaches first — the missing-user and missing-data cases stay distinct,
+as the brief distinguishes them.
 
 ---
 
@@ -94,6 +102,20 @@ fixtures are test infrastructure as much as sample data.
 | `u_006` Eva | invoice record with a **malformed amount** | `TOOL_ERROR` handoff |
 
 `u_005` is not a record — it is the deliberate absence of one, referenced only by tests.
+
+### Loading is lazy and per-user, and that is not incidental
+
+`invoices.json` holds every user's invoices, and `u_006` carries a deliberately malformed
+amount. If the loader validated the whole file eagerly, that one bad record would break
+`get_invoices` for **every** user — the fixture built to exercise one failure path would
+take out the happy paths as collateral.
+
+So: **filter to the requested `user_id` first, validate second.** A tool validates the
+rows it fetched, never the whole table — which is also how a real database adapter
+behaves, so the constraint costs nothing in realism.
+
+A regression test pins this: `u_006` must raise `ToolExecutionError` while `u_002` still
+returns its invoices from the same file.
 
 Users carry varied `language` values (`pt`, `en`, `fr`) even though replies are English
 only. The field is read and traced; not routing on it is a documented scope cut

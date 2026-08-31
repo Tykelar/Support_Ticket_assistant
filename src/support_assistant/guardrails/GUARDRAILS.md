@@ -41,7 +41,7 @@ outside the supported categories, or any step fails. That maps to six reasons.
 | Reason | Trigger | Detected by |
 |---|---|---|
 | `USER_NOT_FOUND` | no fixture record for the `user_id` | `UserNotFound` from any tool |
-| `DATA_NOT_FOUND` | user exists, no rows of the needed kind | `NoDataAvailable` from any tool |
+| `DATA_NOT_FOUND` | user exists, no rows of the needed kind | `NoDataAvailable` from a collection tool ([ADR 0009](../../../docs/adr/0009-absent-data-is-a-handoff.md)) |
 | `UNSUPPORTED_INTENT` | intent is `unknown`, including a keyword tie | classification, pre-loop |
 | `TOOL_ERROR` | malformed fixture, unregistered tool, or **any** unhandled exception | typed error or the catch-all |
 | `ITERATION_CAP_EXCEEDED` | loop hit the cap | `for ... else` |

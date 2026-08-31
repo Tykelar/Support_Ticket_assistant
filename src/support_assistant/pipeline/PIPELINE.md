@@ -134,7 +134,7 @@ Both terminal states are final. Nothing re-opens a ticket; a re-run would be a n
 |---|---|
 | `UNSUPPORTED_INTENT` | step 1, before the loop is entered |
 | `USER_NOT_FOUND` | `UserNotFound` from any tool |
-| `DATA_NOT_FOUND` | `NoDataAvailable` from any tool |
+| `DATA_NOT_FOUND` | `NoDataAvailable` — only from the two collection tools ([ADR 0009](../../../docs/adr/0009-absent-data-is-a-handoff.md)) |
 | `TOOL_ERROR` | `ToolExecutionError`, or any unhandled exception |
 | `ITERATION_CAP_EXCEEDED` | the `for ... else` branch |
 | `UNGROUNDED_REPLY` | grounding violations after rendering |
