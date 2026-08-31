@@ -73,10 +73,12 @@ Each component's documentation lives with its code:
 | Observability | [src/support_assistant/observability/OBSERVABILITY.md](src/support_assistant/observability/OBSERVABILITY.md) |
 | Tests | [tests/TESTS.md](tests/TESTS.md) |
 | Packaging | [deploy/PACKAGING.md](deploy/PACKAGING.md) |
+| Deferred work, and how | [docs/ROADMAP.md](docs/ROADMAP.md) |
 
-Component docs say **what** and **how**; the seven ADRs in [docs/adr/](docs/adr/) say
+Component docs say **what** and **how**; the nine ADRs in [docs/adr/](docs/adr/) say
 **why**, once, and are linked from wherever the decision shows up. Vocabulary is in
-[CONTEXT.md](CONTEXT.md).
+[CONTEXT.md](CONTEXT.md), and everything deliberately left out — with how it would be
+built — is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
@@ -197,27 +199,33 @@ Detail: [OBSERVABILITY.md](src/support_assistant/observability/OBSERVABILITY.md)
 
 ## What I would change with more time
 
-Roughly in the order I would do them.
+The short version; **[docs/ROADMAP.md](docs/ROADMAP.md) is the long one** — fourteen
+entries, each with why it was deferred and concretely how it would be built.
 
-1. **Capture the feedback loop.** Reopen rate and agent overrides are the only real
-   measures of reply quality, and none of them exist today.
-2. **Durable work.** In-process background tasks are lost if the process dies, stranding a
-   ticket in `processing` forever. A queue plus a reaper that fails stranded tickets
-   closed. The `TicketRepository` boundary is where that attaches.
-3. **Semantic grounding.** The checker verifies every literal is *sourced*, not that the
-   sentence around it is *true*. Layer 1 covers that today because status words are
-   enumerated values; a real LLM needs an entailment check against the `FactSet`.
-4. **Entity coverage in layer 2.** Extraction handles numbers, identifiers, and closed
-   status vocabularies. An invented station name in free prose would slip past it — it
-   cannot occur under the fake, and it is the gap a real provider widens most.
-5. **Replies in the user's language.** Profiles carry `language` and the fixtures use it;
-   replies are English only. A template change, not an architecture change
-   ([ADR 0006](docs/adr/0006-fake-first-llm-behind-a-client-protocol.md)).
-6. **Retry on transient tool failure.** Today any tool error ends the run. Reasonable to
-   retry, deliberately absent: it multiplies iterations against the cap and lets the model
-   work around a failure rather than surface it.
-7. **Auth, rate limiting, and trace retention.** All required before this served real
-   customers; none of them exercise what the brief is evaluating.
+**First, capture the feedback loop.** Every metric this system emits measures whether it
+is *behaving* — handoff rates, iteration counts, grounding violations. None measures
+whether the replies are any *good*, and a confidently wrong reply nobody challenges is
+invisible to all of them. Reopen rate, agent override rate, and sampled human review are
+the ground truth everything else would be tuned against, and none of them exist today.
+[How](docs/ROADMAP.md#the-feedback-loop).
+
+**Then make the work durable.** In-process background tasks die with the process, leaving
+a ticket in `processing` forever with nobody paged. A reaper is an hour's work and turns
+silent loss into a handoff; a real queue behind the `TicketRepository` seam is the proper
+fix. [How](docs/ROADMAP.md#durable-work-and-a-reaper).
+
+**Then close the two grounding gaps**, both of which only bite once a real model writes
+the prose: the checker verifies every literal is *sourced*, not that the sentence around
+it is *true* ([how](docs/ROADMAP.md#semantic-grounding)), and its extraction covers
+numbers, ids, and closed status vocabularies but not open-vocabulary entities like an
+invented station name ([how](docs/ROADMAP.md#entity-coverage-in-grounding-layer-2)).
+
+**And before any real customer touches it, authentication** — see the security note
+above. [How](docs/ROADMAP.md#authentication-and-rate-limiting).
+
+Also deferred, each with a plan in the roadmap: replies in the user's language, retry on
+transient tool failure, idempotent submission, push instead of polling, trace retention,
+bounded concurrency, Postgres, cross-ticket queries, and hardening the real LLM client.
 
 ---
 

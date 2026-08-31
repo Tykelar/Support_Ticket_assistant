@@ -142,9 +142,9 @@ storage/
 ## What this is not built for
 
 - **Concurrent writers across processes.** WAL makes SQLite safe for the single-process
-  service here. A queue and multiple workers (ADR 0001) would want Postgres — and the
-  protocol is the seam where that swap happens.
-- **Retention or archival.** Traces accumulate forever. Real deployment needs a policy,
-  driven by how long the audit record must be available.
-- **Querying across tickets.** No search, no filtering, no listing endpoint. The brief's
-  access pattern is by id.
+  service here; the protocol is the seam where Postgres would attach.
+  [Roadmap](../../../docs/ROADMAP.md#postgres-and-multiple-writers).
+- **Retention or archival.** Traces accumulate forever.
+  [Roadmap](../../../docs/ROADMAP.md#trace-retention).
+- **Querying across tickets.** No search, filtering, or listing endpoint. The brief's
+  access pattern is by id. [Roadmap](../../../docs/ROADMAP.md#cross-ticket-queries).

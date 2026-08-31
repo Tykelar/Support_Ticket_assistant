@@ -172,19 +172,17 @@ database. Details in [TRACEABILITY.md](src/support_assistant/tracing/TRACEABILIT
 
 ## 7. Known limitations
 
-Stated here rather than discovered in review.
+Stated here rather than discovered in review. Each is a decision, not a discovery;
+[docs/ROADMAP.md](docs/ROADMAP.md) says how each would be addressed.
 
-- **In-flight work is lost on restart.** A ticket can be stranded in `processing`
-  forever. The production fix is a durable queue plus a reaper that fails stranded
-  tickets closed (ADR 0001).
-- **Grounding verifies sourcing, not truth.** Every literal in a reply is provably from a
-  tool result, but the checker cannot tell that a sentence built from real numbers says
-  something false. Layer 1 covers this today because status words are enumerated values;
-  under a real LLM it would need an entailment check (ADR 0004).
-- **Keyword classification is brittle.** Deliberately — it is a deterministic stand-in so
-  the system around it can be evaluated, not a claim about classification quality
-  (ADR 0006).
-- **Replies are English only**, though profiles carry a `language`. A deliberate scope
-  cut with the reasoning recorded in ADR 0006.
-- **No authentication, rate limiting, or PII redaction beyond trace summarisation.** Out
-  of scope for the exercise; each would be required before this served real customers.
+- **In-flight work is lost on restart** — a ticket can be stranded in `processing`
+  forever (ADR 0001). [Roadmap](docs/ROADMAP.md#durable-work-and-a-reaper).
+- **Grounding verifies sourcing, not truth** — a sentence built from real numbers can
+  still be false (ADR 0004). [Roadmap](docs/ROADMAP.md#semantic-grounding).
+- **Keyword classification is brittle** — deliberately, as a deterministic stand-in
+  rather than a claim about classification quality (ADR 0006).
+- **Replies are English only**, though profiles carry a `language` (ADR 0006).
+  [Roadmap](docs/ROADMAP.md#replies-in-the-users-language).
+- **No authentication or rate limiting.** Anyone holding a ticket id can read that
+  customer's data. A real vulnerability, deliberately scoped out.
+  [Roadmap](docs/ROADMAP.md#authentication-and-rate-limiting).

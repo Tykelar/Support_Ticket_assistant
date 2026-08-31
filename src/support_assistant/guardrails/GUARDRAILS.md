@@ -128,13 +128,12 @@ over-trust.
 - **Sourcing, not truth.** It confirms every literal came from a tool result. It would not
   catch *"your invoice of EUR 42.10 was paid"* when 42.10 is real but the status is
   `failed`. Layer 1 covers this today because status words are enumerated `FactSet`
-  values rather than free text. Under a real LLM it needs an entailment check against the
-  `FactSet` — out of scope, recorded in the README.
+  values rather than free text. [Roadmap](../../../docs/ROADMAP.md#semantic-grounding).
 - **Open-vocabulary entities.** Extraction covers numbers, ids, and closed status
   vocabularies. An invented station name in free prose would not be caught by layer 2;
   under `FakeLLM` it cannot occur, because layer 1 makes it unreachable. This is the main
-  gap a real provider would widen, and closing it means an entity check against the
-  `FactSet`'s string values.
+  gap a real provider would widen.
+  [Roadmap](../../../docs/ROADMAP.md#entity-coverage-in-grounding-layer-2).
 
 ### How it is proved
 

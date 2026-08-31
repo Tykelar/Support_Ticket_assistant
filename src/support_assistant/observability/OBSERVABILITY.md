@@ -106,7 +106,7 @@ are:
   actually helping rather than adding a hop.
 
 The first three need feedback the API does not currently capture. Wiring them is the
-first thing worth building after the core system.
+first thing worth building after the core system — [how](../../../docs/ROADMAP.md#the-feedback-loop).
 
 ---
 

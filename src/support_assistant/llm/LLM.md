@@ -117,7 +117,9 @@ rules, and critically the same post-hoc grounding check. Grounding layer 2 exist
 precisely because layer 1's structural guarantee does not survive free-text generation.
 
 Wired but unpolished: prompt quality is explicitly not what the brief is grading, and
-core requirements come first.
+core requirements come first. What production-shaping it would need — timeouts, a
+circuit breaker, response schema validation, and a golden-file evaluation set — is in
+[the roadmap](../../../docs/ROADMAP.md#hardening-the-real-llm-client).
 
 ---
 
@@ -141,7 +143,8 @@ llm/
 Replies are English only. Templating in three languages triples the template surface —
 and the `TEMPLATE_SAFE_LITERALS` surface with it — while exercising no part of the system
 under evaluation. The field is read and recorded in the trace; routing on it is a template
-change, not an architecture change. Reasoning in ADR 0006.
+change, not an architecture change. Reasoning in ADR 0006, method in
+[the roadmap](../../../docs/ROADMAP.md#replies-in-the-users-language).
 
 **Good classification.** Keyword matching is brittle and is not defended as otherwise. It
 is a deterministic stand-in so the loop, the guardrails, and the failure handling can be

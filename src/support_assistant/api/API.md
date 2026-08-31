@@ -131,8 +131,8 @@ There is no webhook and no streaming. A client polls `GET` until `status != "pro
 
 Acceptable here because the fake pipeline completes in milliseconds, so in practice the
 first `GET` after the `POST` already returns a terminal state. Under a real LLM this
-becomes a real wait, and the honest answer is a callback or SSE — recorded in the README
-as a "with more time" item rather than pretended away.
+becomes a real wait, and the honest answer is a callback or SSE
+([roadmap](../../../docs/ROADMAP.md#push-instead-of-polling)) rather than pretended away.
 
 **In tests this is a non-issue.** Starlette's `TestClient` drains background tasks before
 returning the `POST` response, so a test can `POST` then immediately `GET` a terminal

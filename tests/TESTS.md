@@ -165,9 +165,10 @@ coverage number on a system that can invent data would be a false comfort.
 
 ## What is not tested
 
-- `OllamaLLM` beyond a request-shape unit test. Testing it properly needs a model server,
-  which would make the suite non-deterministic and non-offline. It is off by default and
-  additive.
-- Concurrency and load. Single-process, in-memory background tasks; there is a real
-  question here that this suite does not answer.
+- `OllamaLLM` beyond a request-shape unit test — testing it properly needs a model
+  server, which would make the suite non-deterministic and non-offline. It is off by
+  default and additive.
+  [Roadmap](../docs/ROADMAP.md#hardening-the-real-llm-client).
+- Concurrency and load. Single-process, in-memory background tasks; a real question this
+  suite does not answer. [Roadmap](../docs/ROADMAP.md#bounded-concurrency).
 - The Docker image itself, beyond it building and the service responding.

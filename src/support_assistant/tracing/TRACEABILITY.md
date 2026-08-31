@@ -132,8 +132,8 @@ transaction, so a ticket is never observed with a terminal status but a truncate
 **The trade-off:** a process that dies mid-run loses the partial trace along with the
 ticket, which stays in `processing` (ADR 0001's known limitation). Incremental persistence
 would preserve the partial trace at the cost of a write per step and the atomicity above.
-Given that a stranded ticket needs a reaper either way, the atomic write is the better
-trade here — and the structured log retains a per-step record for exactly this case
+Given that a stranded ticket needs a reaper either way
+([roadmap](../../../docs/ROADMAP.md#durable-work-and-a-reaper)), the atomic write is the better trade here — and the structured log retains a per-step record for exactly this case
 ([OBSERVABILITY.md](../observability/OBSERVABILITY.md)).
 
 The recorder is injected, not global, so tests assert on the recorded steps directly.

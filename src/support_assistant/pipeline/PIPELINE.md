@@ -98,6 +98,8 @@ the swap that would make it matter.
 run, so the model never sees an error and never gets to retry. Retry-on-failure would be a
 reasonable feature, and it is deliberately absent: it multiplies iterations against the
 cap and gives the model room to work around a failure rather than surface it. Fail closed.
+If it were added it belongs in the registry, not the loop —
+[roadmap](../../../docs/ROADMAP.md#retry-on-transient-tool-failure).
 
 ---
 
