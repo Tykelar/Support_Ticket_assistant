@@ -5,7 +5,7 @@ component's own document is the detail, and the ADRs in [`docs/adr/`](docs/adr/)
 reasoning.
 
 > **Reading order.** This file → the component doc for whatever you care about →
-> the ADR it links for *why*. Vocabulary is in [`docs/GLOSSARY.md`](docs/GLOSSARY.md).
+> the ADR it links for *why*. Vocabulary is in [`CONTEXT.md`](CONTEXT.md).
 
 ---
 

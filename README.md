@@ -76,7 +76,7 @@ Each component's documentation lives with its code:
 
 Component docs say **what** and **how**; the seven ADRs in [docs/adr/](docs/adr/) say
 **why**, once, and are linked from wherever the decision shows up. Vocabulary is in
-[docs/GLOSSARY.md](docs/GLOSSARY.md).
+[CONTEXT.md](CONTEXT.md).
 
 ---
 
