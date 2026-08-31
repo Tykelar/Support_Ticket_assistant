@@ -12,6 +12,8 @@ reached the tool call site, `NoDataAvailable` and `UserNotFound` included; these
 neither gets renamed -- TRACEABILITY.md says this once, where `ToolError` is defined.
 """
 
+from pydantic import ValidationError
+
 
 class UserNotFound(Exception):
     """No fixture record for that `user_id`. Raised by all three tools -- the collection
@@ -38,3 +40,12 @@ class ToolExecutionError(Exception):
     served over the API. The full `ValidationError` is chained as `__cause__` for the
     structured log, whose audience is a developer rather than a support agent.
     """
+
+
+def failed_fields(exc: ValidationError) -> str:
+    """The dotted paths of the fields that failed, comma-joined -- the tail of a
+    `ToolExecutionError` message (`... failed validation: amount`). Never the offending
+    value: that stays in the chained `ValidationError`, bound for the log, not the trace."""
+    return ", ".join(
+        ".".join(str(part) for part in error["loc"]) for error in exc.errors()
+    )

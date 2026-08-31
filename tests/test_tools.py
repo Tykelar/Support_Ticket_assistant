@@ -75,6 +75,22 @@ def test_get_user_raises_user_not_found_for_an_unknown_id() -> None:
         loaders.get_user("u_999")
 
 
+def test_get_user_with_a_malformed_row_locates_it_without_the_bad_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # get_user validates the row whole -- User genuinely declares user_id. A bad field is
+    # a ToolExecutionError whose message names the user and the field, never the offending
+    # value: the message reaches the trace, which is served over the API.
+    monkeypatch.setattr(loaders, "FIXTURES_DIR", tmp_path)
+    _write_fixtures(tmp_path, users=[{**_A_USER, "plan": {"tier": "gold"}}])
+    with pytest.raises(ToolExecutionError) as caught:
+        loaders.get_user("u_x")
+    message = str(caught.value)
+    assert "user u_x" in message
+    assert "plan" in message
+    assert "gold" not in message
+
+
 # --------------------------------------------------------------------------------------
 # The collection tools -- newest first, exact decimals, never an empty list.
 # --------------------------------------------------------------------------------------
@@ -205,5 +221,18 @@ def test_an_unreadable_fixture_is_a_tool_execution_error(
     monkeypatch.setattr(loaders, "FIXTURES_DIR", tmp_path)
     _write_fixtures(tmp_path, users=[_A_USER])
     (tmp_path / "invoices.json").write_text("{ not json", encoding="utf-8")
+    with pytest.raises(ToolExecutionError):
+        loaders.get_invoices("u_x")
+
+
+def test_a_fixture_that_is_an_array_of_non_objects_is_a_tool_execution_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The `isinstance(data, list)` check passes but the rows are not objects. The loader
+    # must still raise ToolExecutionError with a locator, not let an AttributeError escape
+    # from `row.get` -- a malformed fixture is a typed failure (TOOLS.md).
+    monkeypatch.setattr(loaders, "FIXTURES_DIR", tmp_path)
+    _write_fixtures(tmp_path, users=[_A_USER])
+    (tmp_path / "invoices.json").write_text(json.dumps(["u_x", 1, 2]), encoding="utf-8")
     with pytest.raises(ToolExecutionError):
         loaders.get_invoices("u_x")

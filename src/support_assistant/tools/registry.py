@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from support_assistant.domain import FixtureRecord, ToolResult
 from support_assistant.tools import loaders
-from support_assistant.tools.errors import ToolExecutionError
+from support_assistant.tools.errors import ToolExecutionError, failed_fields
 
 
 class _UserIdArgs(BaseModel):
@@ -39,7 +39,7 @@ class _UserIdArgs(BaseModel):
 
 
 class _Entry(NamedTuple):
-    fn: Callable[..., FixtureRecord | list[FixtureRecord]]
+    fn: Callable[[str], FixtureRecord | list[FixtureRecord]]
     args: type[BaseModel]
 
 
@@ -62,10 +62,9 @@ def run(name: str, args: dict) -> ToolResult:
     try:
         parsed = entry.args.model_validate(args)
     except ValidationError as exc:
-        fields = ", ".join(
-            ".".join(str(part) for part in error["loc"]) for error in exc.errors()
-        )
-        raise ToolExecutionError(f"{name} called with invalid arguments: {fields}") from exc
+        raise ToolExecutionError(
+            f"{name} called with invalid arguments: {failed_fields(exc)}"
+        ) from exc
     returned = entry.fn(**parsed.model_dump())
     records = returned if isinstance(returned, list) else [returned]
     return ToolResult(tool=name, records=records)

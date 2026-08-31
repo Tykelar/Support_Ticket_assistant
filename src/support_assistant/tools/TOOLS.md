@@ -90,8 +90,8 @@ What a tool returned for one call, as the rest of the system sees it:
 
 ```python
 class ToolResult:
-    tool: str                        # which tool produced this
-    records: list[FixtureRecord]     # User | ChargingSession | Invoice
+    tool: str                                        # which tool produced this
+    records: list[User | ChargingSession | Invoice]  # always a list; get_user yields one
 ```
 
 `records` is always a list — `get_user` yields one element. The uniformity is the point:
@@ -125,8 +125,9 @@ without assembling a trace — reasoning in
 [ADR 0010](../../../docs/adr/0010-the-orchestrator-records-tool-steps.md).
 
 Adding a fourth tool is: write the function, register it with a schema, add its keyword
-rule to `FakeLLM`, add a fixture, add a test. That is the shape of the change the live
-review session is most likely to ask for.
+rule to `FakeLLM`, add a fixture, add a test — and, if it returns a record type the other
+three don't, add that type to the `ToolResult.records` union in `domain.py`. That is the
+shape of the change the live review session is most likely to ask for.
 
 ---
 
@@ -211,8 +212,8 @@ reasoning in [ADR 0003](../../../docs/adr/0003-sqlite-behind-a-repository-protoc
 tools/
   __init__.py
   registry.py    name -> (callable, arg schema); the dispatch chokepoint
-  loaders.py     the three tools, plus the fixture reading and validation behind them
-  errors.py      UserNotFound, NoDataAvailable, ToolExecutionError
+  loaders.py     the three tools, the shared `_collection` body, and the fixture reading
+  errors.py      UserNotFound, NoDataAvailable, ToolExecutionError, failed_fields()
   TOOLS.md       this file
 ../fixtures/     users.json, sessions.json, invoices.json
 ```

@@ -116,10 +116,10 @@ class ToolResult(BaseModel):
     tool: str
     """Which tool produced this."""
 
-    records: list[FixtureRecord]
-    """`User | ChargingSession | Invoice`. Pydantic keeps each element at its concrete
-    subclass (`revalidate_instances` defaults to never), so the uniform list type does not
-    flatten a record's fields away."""
+    records: list[User | ChargingSession | Invoice]
+    """Always a list -- `get_user` yields one element, the collection tools yield many.
+    Pydantic keeps each element at its concrete subclass (`revalidate_instances` defaults
+    to never), so a downstream per-tool rule can still dispatch on the concrete shape."""
 
 
 # --------------------------------------------------------------------------------------
