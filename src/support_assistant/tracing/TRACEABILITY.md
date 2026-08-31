@@ -75,6 +75,13 @@ Enough to explain the reply, never more:
 What is deliberately excluded: full field-by-field records, and anything the reply did not
 depend on.
 
+`summarise(result, referenced=None)` in [summarise.py](summarise.py) produces this, one
+rule per tool. In the agentic loop it runs *before* a reply exists, so it is called with
+`referenced=None` and the list holds every identifier the call returned; once the reply
+is rendered the orchestrator calls it again with the identifiers that reply cited, and
+the list narrows to those. The status distribution is emitted in enum-declaration order
+rather than row order, so a persisted summary is byte-stable run to run.
+
 **The tension worth naming:** summarisation is lossy, and a lossy audit record can fail to
 explain an outcome. The rule above is chosen so the *decision-relevant* facts always
 survive — the `referenced` list is what guarantees a reader can trace any statement in the
@@ -126,12 +133,19 @@ The recorder is constructed with a `Clock` and stamps every step it appends:
 class TraceRecorder:
     def __init__(self, ticket_id: str, clock: Clock) -> None
     def intent_classified(self, intent, matched_keywords) -> None
-    def llm_decision(self, iteration, step) -> None
+    def llm_decision(self, iteration, decision, tool=None) -> None
     def tool_call(self, tool, args) -> None
     def tool_result(self, tool, summary=None, error=None) -> None
     def grounding_check(self, literals_checked, violations) -> None
     def final_decision(self, outcome, reason=None, detail=None) -> None
 ```
+
+`llm_decision` takes the decision (`tool_call` / `reply` / `handoff`) and, for a tool
+call, the tool name — not the LLM's step object. The `ToolCall` / `Reply` / `Handoff`
+types arrive with `llm/` in a later phase and nothing in `tracing/` may depend on `llm/`
+([ARCHITECTURE.md](../../../ARCHITECTURE.md) §3); the orchestrator unpacks its own `step`
+at the call site. `tool_result`'s `ok` and `grounding_check`'s `passed` are derived from
+`error` and `violations` respectively, so the caller cannot record them inconsistently.
 
 Steps accumulate in memory during the run and are persisted with the terminal state in one
 transaction, so a ticket is never observed with a terminal status but a truncated trace
