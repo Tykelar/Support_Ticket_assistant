@@ -108,6 +108,14 @@ reply was withheld:
 Stack traces go to the structured log, not the trace. The trace answers *why the AI said
 this*; a traceback answers *why the code broke*. Different audiences, different places.
 
+**`ToolError` is not `ToolExecutionError`.** The first is the model above — a failure as
+recorded in a `tool_result` step. The second is one of the three exceptions a tool raises
+([TOOLS.md](../tools/TOOLS.md)). The similarity is unfortunate but the names are right:
+`ToolError` records *any* exception that reached the call site, `NoDataAvailable` and
+`UserNotFound` included, so naming it after one of the three would be actively
+misleading. Which component writes the step is settled in
+[ADR 0010](../../../docs/adr/0010-the-orchestrator-records-tool-steps.md).
+
 ---
 
 ## Recording
@@ -121,7 +129,7 @@ class TraceRecorder:
     def llm_decision(self, iteration, step) -> None
     def tool_call(self, tool, args) -> None
     def tool_result(self, tool, summary=None, error=None) -> None
-    def grounding_check(self, violations) -> None
+    def grounding_check(self, literals_checked, violations) -> None
     def final_decision(self, outcome, reason=None, detail=None) -> None
 ```
 
@@ -135,6 +143,11 @@ would preserve the partial trace at the cost of a write per step and the atomici
 Given that a stranded ticket needs a reaper either way
 ([roadmap](../../../docs/ROADMAP.md#durable-work-and-a-reaper)), the atomic write is the better trade here — and the structured log retains a per-step record for exactly this case
 ([OBSERVABILITY.md](../observability/OBSERVABILITY.md)).
+
+`grounding_check` takes the count as well as the violations because `passed` follows from
+whether the list is empty but `literals_checked` does not, and it is what distinguishes a
+check that passed from one that had nothing to look at: `passed: true, literals_checked: 0`
+is a reply the checker never really inspected, and a bare `passed: true` would hide it.
 
 The recorder is injected, not global, so tests assert on the recorded steps directly.
 

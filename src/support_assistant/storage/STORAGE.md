@@ -36,6 +36,16 @@ a previous attempt. The atomicity is the reason the signature looks the way it d
 There is no `update_status`, and no partial write. A run reaches a terminal state or it
 does not.
 
+**`Ticket.trace` is read-populated and write-ignored, and that asymmetry is deliberate.**
+`create` ignores the field — a new ticket has no trace. During the run the steps live in
+the `TraceRecorder`, not on the ticket, which is why `finalise` takes them as a separate
+argument. `get` fills the field in from `trace_steps`, so a caller reading a ticket back
+gets everything in one object, which is what lets `GET /tickets/{id}` answer requirement 5
+from a single call ([API.md](../api/API.md)).
+
+Stated because the shape otherwise invites a fourth method to "fetch the trace". There
+isn't one, and adding it would split a read that is always done together.
+
 ---
 
 ## Implementations

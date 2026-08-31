@@ -91,7 +91,7 @@ dependency direction below rules out:
 
 | Module | Holds |
 |---|---|
-| `domain.py` | `Ticket`, `User`, `ChargingSession`, `Invoice` — the vocabulary of [CONTEXT.md](CONTEXT.md) as types |
+| `domain.py` | `Ticket`, `User`, `ChargingSession`, `Invoice`, `ToolResult` — the vocabulary of [CONTEXT.md](CONTEXT.md) as types. `ToolResult` is here rather than in `tools/` because `llm/` and `guardrails/` both consume it, and neither may import `tools/` |
 | `enums.py` | `Intent`, `TicketStatus`, `SessionStatus`, `InvoiceStatus`. Separate from `domain.py` only because a ticket carries its trace and a trace step names an intent; the enums are the layer both can depend on. Re-exported by `domain.py` |
 | `clock.py` | `Clock`, `SystemClock`, `FrozenClock` (ADR 0008) |
 

@@ -112,10 +112,19 @@ timestamped in production and reproducible in tests
 |---|---|---|---|
 | `reply` | `null` | the reply text | **always `null`** (ADR 0005) |
 | `handoff_reason` | `null` | `null` | the enum member |
-| `trace` | partial, grows | complete | complete, ends in `final_decision` |
+| `trace` | `[]` — see below | complete | complete, ends in `final_decision` |
 
 `reply` and `handoff_reason` are mutually exclusive. Exactly one is non-null in a terminal
 state; neither is in `processing`.
+
+**The trace of a `processing` ticket is empty, not partial.** Steps accumulate in memory
+during the run and are written with the terminal state in one transaction, so a ticket is
+never observed as `replied` with a half-written trace
+([STORAGE.md](../storage/STORAGE.md)). The cost is that a `GET` mid-run shows the ticket
+exists and nothing else. Under `FakeLLM` that window is milliseconds wide; under a real
+model it is real, and incremental persistence — a write per step, in exchange for that
+atomicity — is the trade
+[TRACEABILITY.md](../tracing/TRACEABILITY.md) weighs and declines.
 
 **Errors**
 

@@ -55,7 +55,7 @@ def run_pipeline(ticket_id: str) -> None:
         facts = FactSet.from_observations(history)
         reply = render(draft.template, facts)
         violations = GroundingChecker.verify(reply, facts, draft.template)
-        trace.grounding_check(violations)
+        trace.grounding_check(literals_checked, violations)
         if violations:
             return finish_handoff(HandoffReason.UNGROUNDED_REPLY, detail=violations)
 
