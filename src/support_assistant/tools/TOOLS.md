@@ -53,6 +53,21 @@ join upstream — and the tool cannot tell which. The last two would produce a c
 wrong statement about a customer's billing. Full argument, and the condition under which
 this should flip, in [ADR 0009](../../../docs/adr/0009-absent-data-is-a-handoff.md).
 
+### What a failure message may say
+
+A tool's message reaches the trace, which is served over the API and retained for audit.
+So it carries a **locator, not the payload**:
+
+```
+invoice inv_601 for u_006 failed validation: amount
+```
+
+The record id gets a reader to the row; the offending value is one lookup away for anyone
+entitled to it. The full `ValidationError`, value included, goes to the structured log,
+where the audience is a developer rather than a support agent — the same split that sends
+stack traces to the log and not the trace
+([TRACEABILITY.md](../tracing/TRACEABILITY.md)).
+
 **This applies only to the two collection-returning tools.** `get_user` returns a single
 record and cannot be empty: a user exists, or raises `UserNotFound`. Both collection tools
 also raise `UserNotFound` for an unknown user, so the reason is correct regardless of
@@ -69,15 +84,45 @@ The loop never imports a tool directly. It dispatches through a registry:
 registry.run(name: str, args: dict) -> ToolResult
 ```
 
-Three reasons this indirection earns its place:
+### `ToolResult`
+
+What a tool returned for one call, as the rest of the system sees it:
+
+```python
+class ToolResult:
+    tool: str                        # which tool produced this
+    records: list[FixtureRecord]     # User | ChargingSession | Invoice
+```
+
+`records` is always a list — `get_user` yields one element. The uniformity is the point:
+result summarisation ([TRACEABILITY.md](../tracing/TRACEABILITY.md)) and `FactSet`
+projection ([GUARDRAILS.md](../guardrails/GUARDRAILS.md)) both count and walk records, and
+one shape means one code path for each. Per-tool rules still dispatch on `tool`.
+
+**The tools themselves return domain types** — `get_user(user_id) -> User`, as above. The
+*registry* wraps the return value into a `ToolResult`. That split is why the two
+signatures differ, and it keeps a tool function readable on its own.
+
+**`ToolResult` is defined in `domain.py`, not here.** Three components consume it —
+`Observation` in `llm/`, `FactSet` in `guardrails/`, and summarisation in `tracing/` — and
+[ARCHITECTURE.md](../../../ARCHITECTURE.md) forbids `llm` and `guardrails` from importing
+`tools`. It is also already domain vocabulary: **Tool result** is defined in
+[CONTEXT.md](../../../CONTEXT.md).
+
+Two reasons this indirection earns its place:
 
 1. **Containment.** A model — fake or real — can only reach registered tools. An
    unrecognised name is a `ToolExecutionError`, not an `AttributeError` or, worse, a call
    to something that was never meant to be a tool.
-2. **Uniform tracing.** Every call passes one chokepoint, so `tool_call` and
-   `tool_result` steps are recorded in one place rather than at three call sites.
-3. **Argument validation.** Each entry declares a Pydantic schema; bad arguments fail
+2. **Argument validation.** Each entry declares a Pydantic schema; bad arguments fail
    before the tool body runs.
+
+**Tracing is not one of them.** An earlier draft of this document argued the registry was
+the natural chokepoint for recording `tool_call` and `tool_result` steps. It is not: the
+orchestrator records both, and the registry never sees a `TraceRecorder`. Keeping tracing
+out of here is what lets `tools/` import nothing from `tracing/` and keeps a tool testable
+without assembling a trace — reasoning in
+[ADR 0010](../../../docs/adr/0010-the-orchestrator-records-tool-steps.md).
 
 Adding a fourth tool is: write the function, register it with a schema, add its keyword
 rule to `FakeLLM`, add a fixture, add a test. That is the shape of the change the live
@@ -117,6 +162,25 @@ behaves, so the constraint costs nothing in realism.
 A regression test pins this: `u_006` must raise `ToolExecutionError` while `u_002` still
 returns its invoices from the same file.
 
+### How the loaders read
+
+**Sorted in the loader, not trusted from the file.** Both collection tools return rows
+newest first, and the loader sorts to make that true rather than relying on the fixtures
+being written in order. They are, and a test asserts it — but a reviewer editing a file to
+try something should not be able to silently break a documented contract.
+
+**Read and parsed on every call, never cached.**
+[ADR 0003](../../../docs/adr/0003-sqlite-behind-a-repository-protocol.md) kept fixtures as
+JSON so a reviewer can open a file, change an amount, and re-run. A cache would make that
+require a restart, quietly weakening the one property the format was chosen for. The files
+are around a kilobyte.
+
+**The fixtures directory is a module constant**, resolved relative to the package, not an
+injected dependency. Nothing varies it: [TESTS.md](../../../tests/TESTS.md) is explicit
+that the suite reads the same files as the running service, so there is no second
+directory to point at. Making it an argument is a one-line change if that ever stops being
+true.
+
 ### Two shape choices the loaders inherit
 
 **Each file is a flat array and every row carries `user_id`.** That is the filter key,
@@ -146,11 +210,17 @@ reasoning in [ADR 0003](../../../docs/adr/0003-sqlite-behind-a-repository-protoc
 tools/
   __init__.py
   registry.py    name -> (callable, arg schema); the dispatch chokepoint
-  loaders.py     fixture reading + validation into typed models
+  loaders.py     the three tools, plus the fixture reading and validation behind them
   errors.py      UserNotFound, NoDataAvailable, ToolExecutionError
   TOOLS.md       this file
 ../fixtures/     users.json, sessions.json, invoices.json
 ```
+
+`get_user`, `get_charging_sessions` and `get_invoices` live in `loaders.py` rather than a
+module of their own, because each one *is* a thin loader: filter to the user, validate,
+sort, raise if empty. Splitting sixty lines across two files to honour a naming instinct
+would add an import hop and a second place to look when the review asks for a fourth
+tool.
 
 Fixtures live outside the `tools/` package because they are data, not code, and are read
 by path rather than imported.

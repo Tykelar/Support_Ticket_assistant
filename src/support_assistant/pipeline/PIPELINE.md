@@ -36,7 +36,11 @@ def run_pipeline(ticket_id: str) -> None:
             match step:
                 case ToolCall():
                     trace.tool_call(step.tool, step.args)
-                    result = registry.run(step.tool, step.args)   # may raise
+                    try:
+                        result = registry.run(step.tool, step.args)
+                    except Exception as exc:                      # record, then re-raise
+                        trace.tool_result(step.tool, error=as_tool_error(exc))
+                        raise
                     trace.tool_result(step.tool, summarise(result))
                     history.append(Observation(step, result))
                 case Reply():
@@ -70,7 +74,7 @@ guardrails are the contract.
 
 ---
 
-## Five things about this loop that are deliberate
+## Six things about this loop that are deliberate
 
 **1. `for ... else` is the cap.** The `else` branch runs only when the loop completes
 without `break`, i.e. the model never terminated within `MAX_ITERATIONS`. The cap is
@@ -94,7 +98,16 @@ rather than by discipline.
 check is on the output, so it costs the same either way and it cannot be forgotten during
 the swap that would make it matter.
 
-**5. History accumulates only successful observations.** A failed tool call terminates the
+**5. The tool call is wrapped, and the catch is broad.** A raising tool would otherwise
+jump straight past the line that records its result, leaving the `ok: false` step — the
+first thing a support agent reads when a ticket went wrong — written by nothing. The catch
+is `Exception` rather than a tool-error base class on purpose: an unanticipated bug is
+exactly the case where a reader needs to know which tool was in flight, and narrowing it
+would make the most confusing failures the ones the trace stays silent about. The `raise`
+is unchanged, so the typed handlers below still pick the right reason. The registry never
+sees the recorder ([ADR 0010](../../../docs/adr/0010-the-orchestrator-records-tool-steps.md)).
+
+**6. History accumulates only successful observations.** A failed tool call terminates the
 run, so the model never sees an error and never gets to retry. Retry-on-failure would be a
 reasonable feature, and it is deliberately absent: it multiplies iterations against the
 cap and gives the model room to work around a failure rather than surface it. Fail closed.
