@@ -10,23 +10,35 @@ CONTEXT.md; this module is where they become types.
 import secrets
 from datetime import datetime
 from decimal import Decimal
-from typing import Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from support_assistant.enums import Intent, InvoiceStatus, SessionStatus, TicketStatus
+from support_assistant.enums import (
+    Intent,
+    InvoiceStatus,
+    ReplyTemplate,
+    SessionStatus,
+    TicketStatus,
+)
 from support_assistant.guardrails.handoff import HandoffReason
 from support_assistant.tracing.models import TraceStep
 
 __all__ = [
     "ChargingSession",
     "FixtureRecord",
+    "Handoff",
     "Intent",
     "Invoice",
     "InvoiceStatus",
+    "Observation",
+    "Reply",
+    "ReplyTemplate",
     "SessionStatus",
+    "Step",
     "Ticket",
     "TicketStatus",
+    "ToolCall",
     "ToolResult",
     "User",
     "new_ticket_id",
@@ -120,6 +132,73 @@ class ToolResult(BaseModel):
     """Always a list -- `get_user` yields one element, the collection tools yield many.
     Pydantic keeps each element at its concrete subclass (`revalidate_instances` defaults
     to never), so a downstream per-tool rule can still dispatch on the concrete shape."""
+
+
+# --------------------------------------------------------------------------------------
+# What the model decides
+# --------------------------------------------------------------------------------------
+#
+# The return type of `LLMClient.decide_next_step` (llm/LLM.md, ADR 0002): gather more
+# data, reply, or give up. These live here rather than in `llm/` because `guardrails/`
+# needs `Observation` for `FactSet.from_observations` and ARCHITECTURE.md section 3
+# forbids `guardrails/` importing `llm/` -- the same reason `ToolResult` is here.
+#
+# The discriminator field is named `decision`, and only `ToolCall` carries a `tool`, so
+# the orchestrator can unpack a step for the trace with
+# `trace.llm_decision(i, step.decision, tool=getattr(step, "tool", None))` and the
+# `LLMDecision` model's own validator stays satisfied (tool named iff `tool_call`).
+
+
+class ToolCall(BaseModel):
+    """Gather more data: run `tool` with `args`, then decide again with the result in
+    history."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decision: Literal["tool_call"] = "tool_call"
+    tool: str
+    args: dict[str, Any]
+
+
+class Reply(BaseModel):
+    """Finish by rendering `template` from the `FactSet` the pipeline projects from
+    history. Names the template only -- rendering and grounding are the orchestrator's
+    step, not the model's (PIPELINE.md)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decision: Literal["reply"] = "reply"
+    template: ReplyTemplate
+
+
+class Handoff(BaseModel):
+    """Give up: no reply, a human takes the ticket. First-class so the pipeline handles a
+    model that decides to stop as an outcome rather than an error (ADR 0006). `FakeLLM`
+    never returns this; a real model can."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decision: Literal["handoff"] = "handoff"
+    reason: HandoffReason
+
+
+Step = Annotated[ToolCall | Reply | Handoff, Field(discriminator="decision")]
+"""One action the model chose (CONTEXT.md's *step*), discriminated by `decision`. A
+persisted or transported step reconstructs to the right class rather than an untyped
+dict."""
+
+
+class Observation(BaseModel):
+    """A tool call together with what it returned -- one entry of the history the model
+    sees before choosing its next step (CONTEXT.md)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    step: ToolCall
+    """A `ToolCall`, never `Reply` or `Handoff`: those terminate the loop, so only a tool
+    call ever produces an observation (PIPELINE.md appends one solely in that branch)."""
+
+    result: ToolResult
 
 
 # --------------------------------------------------------------------------------------

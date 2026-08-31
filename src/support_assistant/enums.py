@@ -33,6 +33,22 @@ class TicketStatus(StrEnum):
     HANDED_OFF = "handed_off"
 
 
+class ReplyTemplate(StrEnum):
+    """The reply the pipeline renders, chosen by the LLM from the data it gathered.
+
+    A closed vocabulary, beside `Intent`, because two components key on it: the LLM picks
+    one (`Reply.template`), and grounding layer 2 looks up that template's
+    `TEMPLATE_SAFE_LITERALS` when it verifies the rendered text (LLM.md, GUARDRAILS.md).
+    The prose and the per-template safe-literal lists live in `llm/templates.py`.
+    """
+
+    BILLING_ALL_PAID = "billing_all_paid"
+    BILLING_FAILED = "billing_failed"
+    BILLING_PENDING = "billing_pending"
+    SESSION_COMPLETED = "session_completed"
+    SESSION_INTERRUPTED = "session_interrupted"
+
+
 class SessionStatus(StrEnum):
     """How a charging session ended.
 
