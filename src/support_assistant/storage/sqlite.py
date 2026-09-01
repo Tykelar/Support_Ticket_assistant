@@ -228,18 +228,18 @@ class SqliteTicketRepository:
 
 
 def _step_to_row(ticket_id: str, step: TraceStep) -> tuple[str, int, str, str, str]:
-    """One step as its row. `by_alias` so `Violation.literal_class` is stored under the
-    `class` key TRACEABILITY.md documents; `sort_keys` so a persisted payload is
-    byte-stable run to run."""
+    """One step as its row.
+
+    `by_alias` so `Violation.literal_class` is stored under the `class` key
+    TRACEABILITY.md documents. Key order is left exactly as the producer built it and is
+    **not** sorted: `summarise.py` emits a tool result's status distribution in
+    enum-declaration order on purpose, and sorting here would quietly replace that with
+    alphabetical the moment a trace was persisted. Byte-stability comes from the
+    producers being deterministic, which is a property this system has anyway.
+    """
     data: dict[str, Any] = _STEP.dump_python(step, mode="json", by_alias=True)
     payload = {key: value for key, value in data.items() if key not in _PROMOTED}
-    return (
-        ticket_id,
-        data["seq"],
-        data["ts"],
-        data["type"],
-        json.dumps(payload, sort_keys=True),
-    )
+    return ticket_id, data["seq"], data["ts"], data["type"], json.dumps(payload)
 
 
 def _step_from_row(row: sqlite3.Row) -> TraceStep:

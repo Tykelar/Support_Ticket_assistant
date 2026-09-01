@@ -145,8 +145,10 @@ and are the two fields worth filtering or sorting by; `payload` holds the rest.
 A step is written by `TypeAdapter(TraceStep).dump_python(step, mode="json",
 by_alias=True)` and read back through the same adapter, so a persisted trace reconstructs
 into the same typed steps rather than untyped dicts, and `Violation` keeps the `class` key
-[TRACEABILITY.md](../tracing/TRACEABILITY.md) documents. The payload is dumped with sorted
-keys, so a persisted step is byte-stable run to run.
+[TRACEABILITY.md](../tracing/TRACEABILITY.md) documents. Key order is left as the producer
+built it rather than sorted: `summarise.py` emits a status distribution in
+enum-declaration order deliberately, and sorting on the way in would quietly replace that
+with alphabetical the moment a trace was persisted.
 
 The cost is that steps are not queryable by their inner fields in SQL. Acceptable — the
 access pattern is "fetch every step for one ticket, in order", which is exactly what the

@@ -336,6 +336,24 @@ def test_a_summary_dict_survives_nested(repo: TicketRepository) -> None:
     }
 
 
+def test_a_summary_keeps_its_key_order_through_a_round_trip(repo: TicketRepository) -> None:
+    # `summarise.py` emits the status distribution in enum-declaration order -- paid
+    # before failed -- so a reader sees the same shape every time. Equality on dicts
+    # ignores order, so without this a persist step that sorted keys would look correct
+    # and quietly replace the documented ordering with alphabetical.
+    ticket = _ticket()
+    repo.create(ticket)
+
+    repo.finalise(ticket.id, TicketStatus.REPLIED, "Hi Ben, ...", None, _trace())
+
+    stored = repo.get(ticket.id)
+    assert stored is not None
+    result = stored.trace[1]
+    assert isinstance(result, ToolResultStep)
+    assert result.summary is not None
+    assert list(result.summary["statuses"]) == ["paid", "failed"]
+
+
 # --------------------------------------------------------------------------------------
 # Persistence, and the database's own backstop -- SQLite only
 # --------------------------------------------------------------------------------------
