@@ -30,9 +30,10 @@ packages = ["src/support_assistant"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers -m 'not docker'"
 markers = [
     "e2e: end-to-end tests exercising the API and full pipeline",
+    "docker: builds the image and exercises the running container (needs Docker; excluded by default -- run with `pytest -m docker`)",
 ]
 
 [tool.ruff]

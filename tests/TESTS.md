@@ -31,6 +31,11 @@ pytest
 Or inside the container: `docker compose run --rm api pytest`.
 Full commands in [PACKAGING.md](../deploy/PACKAGING.md).
 
+One test is **excluded from that default run**: `test_docker.py` builds the shipping image
+and drives a live container, which takes a couple of minutes and needs Docker on the
+machine. Run it on its own with `pytest -m docker` (or set `SKIP_DOCKER_TESTS` to skip it
+even when selected).
+
 ---
 
 ## The three the brief requires
@@ -167,6 +172,7 @@ fails. A mask that swallowed both would be a hole, not a fix.
 | `test_observability.py` | the `Counter` / `Histogram` primitives and their Prometheus rendering; **`record_run` derives every metric from a finished trace** (ADR 0014), including `pipeline_duration_seconds` as exact `FrozenClock` arithmetic; JSON step logs carrying `ticket_id` and the step's own `ts`, at `warning` for a handoff |
 | `test_docs.py` | API.md's worked examples, driven through a real request and checked against what the code actually returns — the same failure class as `test_layering.py`, applied to documentation instead of imports |
 | `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps; **a grep guard that no module outside `clock.py` reads the wall clock** |
+| `test_docker.py` | *(marker `docker`, not in the default run)* the shipping image builds, the non-root container starts, `/health` returns `200`, and a `u_002` ticket goes in over HTTP and comes back `replied` with `/metrics` populated |
 | `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable, and what every handoff owes regardless of reason |
 | `test_iteration_cap.py` | the cap, self-contained — one of the three the brief names |
 
