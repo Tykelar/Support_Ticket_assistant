@@ -164,6 +164,7 @@ fails. A mask that swallowed both would be a hole, not a fix.
 | `test_repository_contract.py` | **parametrised over both implementations**; the trace round-trip, and the SQLite-only `CHECK` backstop |
 | `test_tracing.py` | step ordering, `seq` monotonicity, **`ts` increasing with `seq`**, summarisation rules |
 | `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input; that a `POST` really schedules the run and `TestClient` really drains it; `class` as the served key of a `Violation`; and the lifespan's repository ownership |
+| `test_docs.py` | API.md's worked examples, driven through a real request and checked against what the code actually returns — the same failure class as `test_layering.py`, applied to documentation instead of imports |
 | `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps; **a grep guard that no module outside `clock.py` reads the wall clock** |
 | `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable, and what every handoff owes regardless of reason |
 | `test_iteration_cap.py` | the cap, self-contained — one of the three the brief names |
