@@ -15,8 +15,8 @@ dependency graph (ARCHITECTURE.md section 3).
 
 `ts` on a step log is the step's own `ts`, taken from the injected `Clock` -- no wall
 clock is read here, so ADR 0008's grep guard stays green and a step log is as reproducible
-as the trace step it mirrors. The formatter falls back to its own clock only for the
-handful of non-step logs (application startup).
+as the trace step it mirrors. `log_step` always supplies it; the formatter reads the
+stdlib clock only if some stray record without a step `ts` ever reaches this handler.
 
 Ticket `subject` and `body` are never logged: customer text of unknown sensitivity,
 already stored with the ticket, and copying it into an aggregator widens exposure for no
@@ -27,7 +27,6 @@ import json
 import logging
 import os
 import sys
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -36,9 +35,6 @@ from support_assistant.enums import TicketStatus
 from support_assistant.tracing.models import (
     FinalDecision,
     GroundingCheck,
-    IntentClassified,
-    LLMDecision,
-    ToolCallStep,
     ToolResultStep,
     TraceStep,
 )
@@ -67,11 +63,9 @@ class JsonLogFormatter(logging.Formatter):
     """One JSON object per line: `ts`, `level`, `event`, `ticket_id` when bound, then the
     event's own fields."""
 
-    converter = time.gmtime
-
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, object] = {
-            "ts": getattr(record, "event_ts", None) or self._fallback_ts(record),
+            "ts": getattr(record, "event_ts", None) or self.formatTime(record),
             "level": record.levelname.lower(),
             "event": getattr(record, "event", None) or record.getMessage(),
         }
@@ -83,9 +77,6 @@ class JsonLogFormatter(logging.Formatter):
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str)
-
-    def _fallback_ts(self, record: logging.LogRecord) -> str:
-        return f"{self.formatTime(record, '%Y-%m-%dT%H:%M:%S')}.{int(record.msecs):03d}Z"
 
 
 def log_step(step: TraceStep) -> None:
@@ -105,53 +96,34 @@ def log_step(step: TraceStep) -> None:
 
 
 def _describe(step: TraceStep) -> tuple[str, int, dict[str, object]]:
-    """A trace step as (event name, level, fields). A handoff and a withheld reply are
-    `warning`; everything else is `info`."""
-    if isinstance(step, IntentClassified):
-        return "intent_classified", logging.INFO, {
-            "intent": step.intent.value,
-            "matched_keywords": list(step.matched_keywords),
-        }
-    if isinstance(step, LLMDecision):
-        fields: dict[str, object] = {"iteration": step.iteration, "decision": step.decision}
-        if step.tool is not None:
-            fields["tool"] = step.tool
-        return "llm_decision", logging.INFO, fields
-    if isinstance(step, ToolCallStep):
-        return "tool_call", logging.INFO, {"tool": step.tool, "args": step.args}
+    """A trace step as (event name, level, fields).
+
+    The default is the step's own `type` and its own model fields (the transform
+    `api/schemas.py` serves the trace with). Only the three cases where the log
+    deliberately diverges from the trace carry explicit code: a failed tool result and a
+    failed grounding check drop their payload, and a handoff is renamed and reduced to its
+    reason. Those three -- and a withheld reply -- log at `warning`; everything else at
+    `info`. A step type with no case here still logs, generically.
+    """
+    fields = step.model_dump(mode="json", exclude={"seq", "ts", "type"}, exclude_none=True)
     if isinstance(step, ToolResultStep):
+        summary: dict[str, object] = {"tool": step.tool, "ok": step.ok}
         if step.ok:
-            return "tool_result", logging.INFO, {"tool": step.tool, "ok": True}
+            return "tool_result", logging.INFO, summary
         return "tool_result", logging.WARNING, {
-            "tool": step.tool,
-            "ok": False,
+            **summary,
             "error": step.error.type if step.error else None,
         }
     if isinstance(step, GroundingCheck):
-        return "grounding_check", logging.INFO if step.passed else logging.WARNING, {
-            "passed": step.passed,
-            "literals_checked": step.literals_checked,
-            "violations": len(step.violations),
+        fields["violations"] = len(step.violations)
+        return "grounding_check", logging.INFO if step.passed else logging.WARNING, fields
+    if isinstance(step, FinalDecision) and step.outcome is TicketStatus.HANDED_OFF:
+        return "handoff", logging.WARNING, {
+            "reason": step.reason.value if step.reason else None,
+            "detail": step.detail,
         }
-    if isinstance(step, FinalDecision):
-        if step.outcome is TicketStatus.HANDED_OFF:
-            return "handoff", logging.WARNING, {
-                "reason": step.reason.value if step.reason else None,
-                "detail": step.detail,
-            }
-        return "final_decision", logging.INFO, {"outcome": step.outcome.value}
-    # The step union is closed (tracing/models.py); a new member is described here or not
-    # logged.
-    raise ValueError(f"no log mapping for trace step {type(step).__name__}")
+    return step.type, logging.INFO, fields
 
-
-_LEVELS = {
-    "debug": logging.DEBUG,
-    "info": logging.INFO,
-    "warning": logging.WARNING,
-    "error": logging.ERROR,
-    "critical": logging.CRITICAL,
-}
 
 _configured = False
 
@@ -178,5 +150,5 @@ def configure_logging(level: str | int | None = None) -> None:
 def _resolve_level(level: str | int | None) -> int:
     if isinstance(level, int):
         return level
-    name = (level or os.environ.get("LOG_LEVEL") or "info").lower()
-    return _LEVELS.get(name, logging.INFO)
+    name = (level or os.environ.get("LOG_LEVEL") or "info").upper()
+    return logging.getLevelNamesMapping().get(name, logging.INFO)

@@ -56,23 +56,18 @@ def _fmt(value: float) -> str:
     return str(int(number)) if number.is_integer() else repr(number)
 
 
-class Counter:
-    """A monotonically increasing count, optionally sliced by a fixed set of labels.
+class _Metric:
+    """Name, help text, label names, and the two things every family does with them:
+    validate a label set against the declared names, and emit the `# HELP` / `# TYPE`
+    header. `Counter` and `Histogram` differ only in what they accumulate and how they
+    render the samples."""
 
-    A series is emitted only for a label combination that has actually been seen -- a
-    labelled counter with no data is a `# TYPE` line and nothing else, which is the honest
-    state before the first run.
-    """
+    _TYPE: str
 
     def __init__(self, name: str, documentation: str, labelnames: Sequence[str] = ()) -> None:
         self.name = name
         self.documentation = documentation
         self._labelnames = tuple(labelnames)
-        self._values: dict[tuple[str, ...], int] = {}
-
-    def inc(self, amount: int = 1, **labels: str) -> None:
-        key = self._key(labels)
-        self._values[key] = self._values.get(key, 0) + amount
 
     def _key(self, labels: dict[str, str]) -> tuple[str, ...]:
         if set(labels) != set(self._labelnames):
@@ -81,11 +76,33 @@ class Counter:
             )
         return tuple(str(labels[name]) for name in self._labelnames)
 
-    def render(self) -> str:
-        lines = [
+    def _header(self) -> list[str]:
+        return [
             f"# HELP {self.name} {self.documentation}",
-            f"# TYPE {self.name} counter",
+            f"# TYPE {self.name} {self._TYPE}",
         ]
+
+
+class Counter(_Metric):
+    """A monotonically increasing count, optionally sliced by a fixed set of labels.
+
+    A series is emitted only for a label combination that has actually been seen -- a
+    labelled counter with no data is a `# TYPE` line and nothing else, which is the honest
+    state before the first run.
+    """
+
+    _TYPE = "counter"
+
+    def __init__(self, name: str, documentation: str, labelnames: Sequence[str] = ()) -> None:
+        super().__init__(name, documentation, labelnames)
+        self._values: dict[tuple[str, ...], int] = {}
+
+    def inc(self, amount: int = 1, **labels: str) -> None:
+        key = self._key(labels)
+        self._values[key] = self._values.get(key, 0) + amount
+
+    def render(self) -> str:
+        lines = self._header()
         for key, value in self._values.items():
             lines.append(f"{self.name}{_labels(self._labelnames, key)} {value}")
         return "\n".join(lines)
@@ -113,7 +130,7 @@ class _Series:
         self.count += 1
 
 
-class Histogram:
+class Histogram(_Metric):
     """Observations bucketed by upper bound, plus a sum and a count.
 
     Buckets render cumulatively with an `le` label, ending in `+Inf`, as the exposition
@@ -122,6 +139,8 @@ class Histogram:
     combination seen.
     """
 
+    _TYPE = "histogram"
+
     def __init__(
         self,
         name: str,
@@ -129,9 +148,7 @@ class Histogram:
         labelnames: Sequence[str] = (),
         buckets: Sequence[float] = _DURATION_BUCKETS,
     ) -> None:
-        self.name = name
-        self.documentation = documentation
-        self._labelnames = tuple(labelnames)
+        super().__init__(name, documentation, labelnames)
         self._buckets = tuple(sorted(buckets))
         self._series: dict[tuple[str, ...], _Series] = {}
 
@@ -139,18 +156,8 @@ class Histogram:
         key = self._key(labels)
         self._series.setdefault(key, _Series(self._buckets)).observe(value)
 
-    def _key(self, labels: dict[str, str]) -> tuple[str, ...]:
-        if set(labels) != set(self._labelnames):
-            raise ValueError(
-                f"{self.name} is labelled {self._labelnames}, got {tuple(labels)}"
-            )
-        return tuple(str(labels[name]) for name in self._labelnames)
-
     def render(self) -> str:
-        lines = [
-            f"# HELP {self.name} {self.documentation}",
-            f"# TYPE {self.name} histogram",
-        ]
+        lines = self._header()
         series = dict(self._series)
         if not series and not self._labelnames:
             series[()] = _Series(self._buckets)
