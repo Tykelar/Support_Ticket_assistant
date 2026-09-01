@@ -45,6 +45,11 @@ _Avoid_: runner, controller, engine, coordinator
 The kind of question a ticket is asking, as classified by the pipeline.
 _Avoid_: category, class, topic, type
 
+**Classification**:
+The intent the pipeline decided a ticket has, together with the evidence for that
+decision.
+_Avoid_: categorisation, label, prediction
+
 **Step**:
 A single action the model chooses: gather more data, reply, or give up.
 _Avoid_: action, move, instruction

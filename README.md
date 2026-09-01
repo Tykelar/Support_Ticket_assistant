@@ -253,7 +253,7 @@ Per the brief's disclosure requirement.
 
 - **As an interviewer, before any code.** The design decisions above were reached by
   being pushed on them — sync vs async, whether the iteration cap guards anything real,
-  whether structural grounding survives a real model. The seven ADRs are the record of
+  whether structural grounding survives a real model. The twelve ADRs are the record of
   those arguments, including the alternatives that were rejected and why.
 - **As a drafting tool** for documentation and implementation, reviewed and edited by
   hand.

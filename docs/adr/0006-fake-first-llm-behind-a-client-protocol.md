@@ -47,6 +47,17 @@ tool-call response maps onto it directly, which is what keeps the swap honest.
   a deterministic stand-in that lets the surrounding system be evaluated. Real
   classification quality is a model concern, and the brief explicitly is not grading it.
 
+### Note (2026-09-01): `classify_intent` now returns a `Classification`
+
+The signature in the Decision above returned a bare `Intent`. It could not supply the
+`matched_keywords` the `intent_classified` trace step carries, which left LLM.md and
+TRACEABILITY.md both promising evidence no interface could deliver.
+[ADR 0012](0012-classification-carries-its-own-evidence.md) supersedes that one line:
+`classify_intent(ticket) -> Classification`, carrying the intent and the evidence for it,
+with the evidence optional so a real provider is not obliged to invent any. Nothing else
+here changes -- two methods, a discriminated union from `decide_next_step`, the fake as
+the default.
+
 ## Non-goal: multilingual replies
 
 User profiles carry a `language` field, and the fixtures use several. Replies are

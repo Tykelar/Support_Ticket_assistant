@@ -13,24 +13,29 @@ is an optional bonus behind the identical interface.
 
 ```python
 class LLMClient(Protocol):
-    def classify_intent(self, ticket: Ticket) -> Intent: ...
+    def classify_intent(self, ticket: Ticket) -> Classification: ...
 
     def decide_next_step(
         self, ticket: Ticket, history: list[Observation]
     ) -> ToolCall | Reply | Handoff: ...
 ```
 
-`ToolCall`, `Reply`, `Handoff` (discriminated on `decision`) and `Observation` live in
-[`domain.py`](../../../ARCHITECTURE.md), not in this package: `guardrails/` consumes
-`Observation` for `FactSet.from_observations` and ARCHITECTURE.md §3 forbids it importing
-`llm/`. Same reason `ToolResult` sits there.
+`ToolCall`, `Reply`, `Handoff` (discriminated on `decision`), `Classification` and
+`Observation` live in [`domain.py`](../../../ARCHITECTURE.md), not in this package:
+`guardrails/` consumes `Observation` for `FactSet.from_observations` and ARCHITECTURE.md
+§3 forbids it importing `llm/`. Same reason `ToolResult` sits there.
 
-`classify_intent` returns the `Intent` only. The `matched_keywords` that the
-`intent_classified` trace step carries are not on this interface — for a real model
-"matched keywords" is meaningless. How the orchestrator gets that evidence out of a
-classification is a phase-7 (pipeline) question; today nothing calls this in anger.
+`classify_intent` returns a `Classification` — the intent **and** the evidence for it —
+because the `intent_classified` trace step carries `matched_keywords` and only the
+classifier knows them. Re-deriving them in the orchestrator would put a copy of this
+package's keyword rules inside `pipeline/`, and a copy that drifts still produces
+plausible evidence for a decision it no longer describes
+([ADR 0012](../../../docs/adr/0012-classification-carries-its-own-evidence.md), which
+supersedes ADR 0006 on this one line). `matched_keywords` defaults to empty, so an
+implementation with no such evidence to give is not obliged to invent any — "matched
+keywords" is meaningless for a real model, and an empty tuple says so honestly.
 
-Two things about this signature carry weight.
+Three things about this signature carry weight.
 
 **The return type is a discriminated union, not a string.** A real provider's tool-call
 response maps onto it directly, so swapping implementations is a swap and not a redesign.
@@ -60,20 +65,25 @@ Case-insensitive keyword matching over `subject + body`.
 
 Scored by number of distinct keyword hits; the higher score wins.
 
+**The evidence is the winning category's hits**, sorted and de-duplicated: sorted because
+the fake is deterministic byte for byte, winner-only because listing the loser's hits
+would make the trace argue for a classification the fake did not make. An `unknown`
+outcome carries none — there is no evidence *for* it beyond the absence of a winner.
+
 **A tie resolves to `unknown`**, which means a handoff. A ticket that talks equally about
 billing and charging is genuinely ambiguous, and guessing between two templates is
 exactly the kind of confident-and-wrong behaviour the system is built to avoid. Failing
 closed on ambiguity is the same instinct as ADR 0005, applied to classification.
 
 A support agent sees *why* a ticket was categorised as it was — not just that it was —
-from the `matched_keywords` on the `intent_classified` trace step (produced by the
-pipeline, see the note under "The protocol").
+from the `matched_keywords` on the `intent_classified` trace step, which the orchestrator
+records straight from the `Classification` it was handed.
 
 ### Step decision
 
 A small state machine over the observation history. `FakeLLM` re-derives the intent from
-the ticket (it holds no state between calls); given that and what has already been
-gathered:
+the ticket via `classify_intent(ticket).intent` (it holds no state between calls); given
+that and what has already been gathered:
 
 ```
 1. no get_user observation yet          -> ToolCall(get_user, {user_id})

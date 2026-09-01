@@ -26,6 +26,7 @@ from support_assistant.tracing.models import TraceStep
 
 __all__ = [
     "ChargingSession",
+    "Classification",
     "FixtureRecord",
     "Handoff",
     "HandoffReason",
@@ -149,6 +150,35 @@ class ToolResult(BaseModel):
     """Always a list -- `get_user` yields one element, the collection tools yield many.
     Pydantic keeps each element at its concrete subclass (`revalidate_instances` defaults
     to never), so a downstream per-tool rule can still dispatch on the concrete shape."""
+
+
+# --------------------------------------------------------------------------------------
+# What the model classifies
+# --------------------------------------------------------------------------------------
+
+
+class Classification(BaseModel):
+    """What `LLMClient.classify_intent` returns: the intent, and the evidence for it.
+
+    A bare `Intent` was the original signature (ADR 0006). It could not supply the
+    `matched_keywords` the `intent_classified` trace step carries, and only the classifier
+    knows them -- so the evidence travels with the intent rather than being reconstructed
+    by the orchestrator from a component whose rules it does not own
+    ([ADR 0012](../../docs/adr/0012-classification-carries-its-own-evidence.md)).
+
+    It lives here, beside the decision union, for the same reason those do: `pipeline/`
+    and `llm/` both name it, and neither may import the other's package.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intent: Intent
+
+    matched_keywords: tuple[str, ...] = ()
+    """Why the classifier decided this. `FakeLLM` fills it with the keywords it matched;
+    a real provider may leave it empty, which is why it defaults rather than being
+    required -- a protocol that obliged an implementation to invent evidence would get
+    invented evidence."""
 
 
 # --------------------------------------------------------------------------------------

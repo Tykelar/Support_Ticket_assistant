@@ -16,6 +16,7 @@ in the union for a real model and for the pipeline to handle, not for the fake t
 import re
 
 from support_assistant.domain import (
+    Classification,
     Intent,
     InvoiceStatus,
     Observation,
@@ -57,18 +58,34 @@ _DATA_TOOL = {
 class FakeLLM:
     """The deterministic default. Stateless -- construct with no arguments."""
 
-    def classify_intent(self, ticket: Ticket) -> Intent:
+    def classify_intent(self, ticket: Ticket) -> Classification:
+        """The intent, and the keywords that produced it.
+
+        The evidence is the *winning* category's hits only. Listing the loser's as
+        well would make the `intent_classified` step argue for a classification the
+        fake did not make, and an `unknown` outcome -- nothing matched, or a tie --
+        has no evidence *for* it at all (ADR 0012).
+
+        Sorted and de-duplicated, so the same ticket produces the same trace byte for
+        byte (ADR 0006). De-duplication is also what makes the score a count of
+        *distinct* keywords, which is the scoring rule LLM.md states.
+        """
         text = f"{ticket.subject}\n{ticket.body}".lower()
-        billing = len(set(_BILLING.findall(text)))
-        charging = len(set(_CHARGING.findall(text)))
-        if billing > charging:
-            return Intent.BILLING_QUESTION
-        if charging > billing:
-            return Intent.CHARGING_SESSION_PROBLEM
-        return Intent.UNKNOWN  # a tie is genuine ambiguity -- fail closed (LLM.md)
+        billing = sorted(set(_BILLING.findall(text)))
+        charging = sorted(set(_CHARGING.findall(text)))
+        if len(billing) > len(charging):
+            return Classification(
+                intent=Intent.BILLING_QUESTION, matched_keywords=tuple(billing)
+            )
+        if len(charging) > len(billing):
+            return Classification(
+                intent=Intent.CHARGING_SESSION_PROBLEM, matched_keywords=tuple(charging)
+            )
+        # A tie is genuine ambiguity -- fail closed (LLM.md).
+        return Classification(intent=Intent.UNKNOWN)
 
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
-        intent = self.classify_intent(ticket)
+        intent = self.classify_intent(ticket).intent
         if intent is Intent.UNKNOWN:
             raise ValueError(
                 "decide_next_step called for an unknown intent; the pipeline hands "
