@@ -7,26 +7,25 @@ hands the ticket to a human — recording everything it did along the way.
 
 Built for the [take-home challenge](docs/brief.md).
 
-> **Status: design complete, implementation in progress.** The architecture, ADRs, and
-> per-component documentation are written; code lands in the phases described in
-> [Build order](#build-order). This notice is removed when the service runs.
+> **Status: the service runs.** `POST` a ticket and `GET` it back with its reply and
+> full trace — under `uvicorn`, from the command below. Still to land, per
+> [Build order](#build-order): `/metrics` and structured logs (phase 9), and the Docker
+> packaging (phase 10), so `docker compose up` does not work yet.
 
 ---
 
 ## Run it
 
 ```bash
-docker compose up
-```
-
-Service on `http://localhost:8000`, interactive docs at `/docs`.
-
-Or without Docker:
-
-```bash
 pip install -e ".[dev]"
 uvicorn support_assistant.api.app:app --reload
 ```
+
+Service on `http://localhost:8000`, interactive docs at `/docs`. No configuration needed:
+the database path defaults, and the LLM is the deterministic `FakeLLM` unless you opt in
+to a real one.
+
+Docker is phase 10 — once it lands, `docker compose up` is the one-liner.
 
 ## Test it
 

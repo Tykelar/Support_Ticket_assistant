@@ -37,12 +37,12 @@ Full commands in [PACKAGING.md](../deploy/PACKAGING.md).
 
 Named explicitly so they are easy to find and to run in isolation.
 
-The first two go through `POST` and `GET`, so they land with `api/`. The pipeline half of
+The first two go through `POST` and `GET`, and now that `api/` exists they run. The pipeline half of
 each is already covered by `test_pipeline.py` -- the happy path with a grounded reply, and
 both handoff cases keeping their separate reasons -- so what the e2e files add is the HTTP
 surface and the background-task scheduling, not the behaviour.
 
-### 1. Happy path, end to end &nbsp;·&nbsp; *awaiting `api/`*
+### 1. Happy path, end to end &nbsp;·&nbsp; *built*
 
 `test_e2e_happy_path.py::test_billing_question_gets_grounded_reply`
 
@@ -53,7 +53,11 @@ Asserts, in order of what actually matters:
 
 - the reply names the real invoice id and the real amount from the fixture;
 - **every literal in the reply appears in the fixture data** — the grounding property
-  asserted directly on the output, not merely trusted because the checker ran;
+  asserted directly on the output, not merely trusted because the checker ran. The
+  identifiers, numbers and status words are extracted with the test's *own* regexes and
+  compared against the raw `fixtures/*.json`, never against the `FactSet` the pipeline
+  built: a test that borrowed the checker's idea of a literal could not fail when that
+  idea is the thing that is wrong;
 - the trace contains `intent_classified`, both `tool_call`/`tool_result` pairs,
   `grounding_check` passed, and `final_decision`;
 - `handoff_reason` is `None`.
@@ -62,7 +66,7 @@ Asserts, in order of what actually matters:
 pytest tests/test_e2e_happy_path.py -v
 ```
 
-### 2. Handoff on missing data &nbsp;·&nbsp; *awaiting `api/`*
+### 2. Handoff on missing data &nbsp;·&nbsp; *built*
 
 `test_e2e_handoff.py::test_unknown_user_hands_off`
 `test_e2e_handoff.py::test_known_user_with_no_data_hands_off`
@@ -81,6 +85,12 @@ Both assert `reply is None` — not empty string, not a holding message — and 
 ```bash
 pytest tests/test_e2e_handoff.py -v
 ```
+
+Both files run over a **real `SqliteTicketRepository`** in `tmp_path` rather than the
+in-memory double. The pipeline behaviour is already covered elsewhere; what these add is
+the HTTP surface, the background-task scheduling and the serialisation round trip — and
+that last one is where a trace-ordering defect hid until a manual end-to-end run found it.
+Their shared fixtures are in `conftest.py`.
 
 ### 3. Iteration cap &nbsp;·&nbsp; *built*
 
@@ -150,10 +160,10 @@ fails. A mask that swallowed both would be a hole, not a fix.
 | `test_fake_llm.py` | keyword rules per intent, **tie resolves to `unknown`**, step state machine ordering |
 | `test_factset.py` | projection from observations, `allowed_literals()`, `allowed_entities()` |
 | `test_grounding.py` | the checker, as above; sourced entity text not re-scanned; `TEMPLATE_SAFE_LITERALS` is numbers-only; every status enum member extractable |
-| `test_layering.py` | the dependency direction of ARCHITECTURE.md §3, parsed from the imports (ADR 0011); nothing below `pipeline/` imports it, and the orchestrator is where the three mutually-ignorant components meet |
+| `test_layering.py` | the dependency direction of ARCHITECTURE.md §3, parsed from the imports (ADR 0011); nothing below `pipeline/` imports it, nothing at all imports `api/`, `api/` reaches no tool and no guardrail, and the orchestrator is where the three mutually-ignorant components meet |
 | `test_repository_contract.py` | **parametrised over both implementations**; the trace round-trip, and the SQLite-only `CHECK` backstop |
 | `test_tracing.py` | step ordering, `seq` monotonicity, **`ts` increasing with `seq`**, summarisation rules |
-| `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input |
+| `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input; that a `POST` really schedules the run and `TestClient` really drains it; `class` as the served key of a `Violation`; and the lifespan's repository ownership |
 | `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps; **a grep guard that no module outside `clock.py` reads the wall clock** |
 | `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable, and what every handoff owes regardless of reason |
 | `test_iteration_cap.py` | the cap, self-contained — one of the three the brief names |
