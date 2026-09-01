@@ -41,6 +41,7 @@ from support_assistant.domain import (
 )
 from support_assistant.enums import LiteralClass
 from support_assistant.llm.fake import FakeLLM
+from support_assistant.observability.metrics import MetricRegistry
 from support_assistant.storage.memory import InMemoryTicketRepository
 from support_assistant.storage.sqlite import SqliteTicketRepository
 from support_assistant.tracing.models import FinalDecision, GroundingCheck, TraceStep, Violation
@@ -87,8 +88,16 @@ def repository(clock: FrozenClock) -> InMemoryTicketRepository:
 
 
 @pytest.fixture
-def client(repository: InMemoryTicketRepository, clock: FrozenClock) -> Iterator[TestClient]:
-    app = create_app(repository=repository, llm=FakeLLM(), clock=clock)
+def metrics() -> MetricRegistry:
+    """A registry per test, so one test's runs never colour another's `/metrics`."""
+    return MetricRegistry()
+
+
+@pytest.fixture
+def client(
+    repository: InMemoryTicketRepository, clock: FrozenClock, metrics: MetricRegistry
+) -> Iterator[TestClient]:
+    app = create_app(repository=repository, llm=FakeLLM(), clock=clock, metrics=metrics)
     with TestClient(app) as test_client:
         yield test_client
 
@@ -425,6 +434,45 @@ def test_health_reports_unavailable_when_the_database_does_not() -> None:
 def test_the_interactive_docs_are_served(client: TestClient) -> None:
     # README points a reader at /docs as the way to try the service.
     assert client.get("/docs").status_code == 200
+
+
+def test_metrics_is_served_and_self_describing_from_the_first_scrape(client: TestClient) -> None:
+    """API.md used to withhold `/metrics` because an empty metric set reads as "nothing is
+    wrong". The answer is an endpoint that is always present and always names its metrics;
+    the sample lines are what wait for a run."""
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "# TYPE tickets_total counter" in response.text
+    assert "# TYPE handoffs_total counter" in response.text
+
+
+def test_a_replied_run_shows_up_in_the_metrics(client: TestClient) -> None:
+    _post(client)
+
+    body = client.get("/metrics").text
+    assert 'tickets_total{status="replied"} 1' in body
+    assert 'pipeline_duration_seconds_count{outcome="replied"} 1' in body
+
+
+def test_a_handoff_is_counted_by_reason(client: TestClient) -> None:
+    _post(client, user_id="u_005")
+
+    body = client.get("/metrics").text
+    assert 'tickets_total{status="handed_off"} 1' in body
+    assert 'handoffs_total{reason="USER_NOT_FOUND"} 1' in body
+
+
+def test_the_scrape_and_the_background_run_share_one_registry(
+    client: TestClient, metrics: MetricRegistry
+) -> None:
+    """The counterpart to `test_the_post_schedules_the_run_and_the_client_drains_it`: the
+    `BackgroundTask` increments the registry `create_app` was handed, and `/metrics` reads
+    that same object -- otherwise every number the endpoint serves is zero."""
+    _post(client)
+
+    assert 'tickets_total{status="replied"} 1' in metrics.render()
 
 
 # --------------------------------------------------------------------------------------

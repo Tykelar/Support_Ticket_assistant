@@ -108,14 +108,45 @@ def test_nothing_in_tracing_reaches_into_a_component() -> None:
     assert offenders == {}, f"tracing/ must not depend on a component, found {offenders}"
 
 
+def test_tracing_does_not_import_observability() -> None:
+    """`observability/` reads `tracing.models` to walk a finished trace; the arrow points
+    that way and only that way. The `on_step` hook that feeds the logs is *injected* into
+    `TraceRecorder` by the orchestrator, not imported by it -- the recorder produces the
+    trace and stays ignorant of who is also logging it (OBSERVABILITY.md: trace and log
+    are different records for different readers)."""
+    offenders = {
+        path.relative_to(SRC).as_posix()
+        for path in _modules_under("tracing")
+        if any(_component(m) == "observability" for m in _imports(path))
+    }
+    assert offenders == set(), f"tracing/ imports observability: {sorted(offenders)}"
+
+
+def test_observability_depends_on_no_component() -> None:
+    """`everything --> observability` (ARCHITECTURE.md section 3): it is a sink of the
+    dependency graph, beside `domain` / `enums` / `clock`. It may read `tracing.models`
+    (the step types it derives metrics from) and the root enums, but an import of `llm/`,
+    `tools/`, `guardrails/`, `pipeline/`, `api/` or `storage/` would make the sink a
+    source and open the door to a component recording its own metrics its own way."""
+    forbidden = (*MUTUALLY_IGNORANT, "pipeline", "api", "storage")
+    offenders = {
+        path.relative_to(SRC).as_posix(): sorted(bad)
+        for path in _modules_under("observability")
+        if (bad := {m for m in _imports(path) if _component(m) in forbidden})
+    }
+    assert offenders == {}, f"observability/ depends on a component: {offenders}"
+
+
 # --------------------------------------------------------------------------------------
 # The orchestrator, and what sits under it
 # --------------------------------------------------------------------------------------
 
 
-BELOW_THE_PIPELINE = (*MUTUALLY_IGNORANT, "tracing", "storage")
+BELOW_THE_PIPELINE = (*MUTUALLY_IGNORANT, "tracing", "storage", "observability")
 """ARCHITECTURE.md section 3: `api --> pipeline --> llm / tools / guardrails / storage`,
-and `pipeline --> tracing`. Dependencies point downward from the orchestrator."""
+and `pipeline --> tracing`. Dependencies point downward from the orchestrator.
+`observability` is lower still -- `everything --> observability` -- so nothing below the
+pipeline, the pipeline included, is imported by it."""
 
 
 @pytest.mark.parametrize("package", BELOW_THE_PIPELINE)
