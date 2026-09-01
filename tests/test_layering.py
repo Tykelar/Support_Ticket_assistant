@@ -146,6 +146,37 @@ def test_storage_depends_on_no_component() -> None:
     assert offenders == {}, f"storage/ must not depend on a component, found {offenders}"
 
 
+ABOVE_NOTHING = (*BELOW_THE_PIPELINE, "pipeline")
+"""Every package that is not `api`. The arrow into `api` comes from outside the process."""
+
+
+@pytest.mark.parametrize("package", ABOVE_NOTHING)
+def test_nothing_imports_the_api(package: str) -> None:
+    """ARCHITECTURE.md section 3: "Nothing imports `api`". It is the entry point, so an
+    import of it is something below the pipeline reaching for a request, a response model
+    or the app itself -- which is how HTTP concerns start leaking into the domain."""
+    offenders = {
+        path.relative_to(SRC).as_posix(): sorted(bad)
+        for path in _modules_under(package)
+        if (bad := {m for m in _imports(path) if _component(m) == "api"})
+    }
+    assert offenders == {}, f"{package}/ imports api: {offenders}. Nothing imports the edge."
+
+
+def test_the_api_reaches_no_tool_and_no_guardrail() -> None:
+    """API.md: the HTTP layer validates input, schedules work and serves ticket state. It
+    may name `pipeline` and `storage` (it wires them) and `llm` (it picks the default
+    client), but a tool call or a grounding check reached from a request handler is
+    pipeline logic that has escaped the orchestrator -- and escaped the trace with it.
+    """
+    offenders = {
+        path.relative_to(SRC).as_posix(): sorted(bad)
+        for path in _modules_under("api")
+        if (bad := {m for m in _imports(path) if _component(m) in ("tools", "guardrails")})
+    }
+    assert offenders == {}, f"api/ reaches into a component the orchestrator owns: {offenders}"
+
+
 def test_the_orchestrator_is_where_the_components_meet() -> None:
     """The other half of the mutual-ignorance rule. `llm`, `tools` and `guardrails` never
     import each other, so *something* has to hold all three -- and if nothing does, the
