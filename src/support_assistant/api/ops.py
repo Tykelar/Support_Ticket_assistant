@@ -7,19 +7,23 @@ traffic, and every request fails on a database that is gone. So the check asks t
 repository a real question and reports `503` when it cannot answer -- which is what makes
 the `HEALTHCHECK` in [PACKAGING.md](../../../deploy/PACKAGING.md) mean something.
 
-`GET /metrics` lands with `observability/`; the counters it serves are defined in
-[OBSERVABILITY.md](../observability/OBSERVABILITY.md) and nothing produces them yet. An
-endpoint returning an empty metric set would be worse than an absent one -- a dashboard
-would read zeros as "nothing is wrong".
+`GET /metrics` renders the in-process `MetricRegistry` as Prometheus text. The families
+are defined in [OBSERVABILITY.md](../observability/OBSERVABILITY.md) and populated by
+`record_run` at the end of every pipeline run. The endpoint is always present and always
+names its metrics; only the sample lines wait for the first run, so a scrape is never an
+empty body a dashboard could read as "nothing is wrong".
 """
 
 from fastapi import APIRouter, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from support_assistant.api.dependencies import Repository
+from support_assistant.api.dependencies import Metrics, Repository
 from support_assistant.api.schemas import Health
 
 router = APIRouter(tags=["ops"])
+
+_PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
+"""The exposition-format content type a Prometheus scraper expects."""
 
 _PROBE_ID = "t_00000000000000000000000000000000"
 """The id the health check asks about. Whether it exists is irrelevant and is not
@@ -45,3 +49,15 @@ def health(repository: Repository) -> JSONResponse:
             content=Health(status="unavailable").model_dump(),
         )
     return JSONResponse(status_code=status.HTTP_200_OK, content=Health(status="ok").model_dump())
+
+
+@router.get(
+    "/metrics",
+    response_class=PlainTextResponse,
+    summary="The in-process counters and histograms, as Prometheus text",
+)
+def metrics(registry: Metrics) -> PlainTextResponse:
+    """The registry `create_app` built and the pipeline writes to, rendered on demand.
+    Unauthenticated, like everything else -- it exposes ticket volumes and the handoff
+    breakdown to anyone who asks (API.md's security note)."""
+    return PlainTextResponse(registry.render(), media_type=_PROMETHEUS_CONTENT_TYPE)

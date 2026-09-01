@@ -22,7 +22,6 @@ import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import timedelta
 
 import pytest
 
@@ -41,7 +40,6 @@ from support_assistant.observability.metrics import (
 )
 from support_assistant.tracing.models import Violation
 from support_assistant.tracing.recorder import TraceRecorder
-
 
 # --------------------------------------------------------------------------------------
 # Helpers

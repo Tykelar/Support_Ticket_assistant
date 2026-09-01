@@ -15,7 +15,7 @@ response leaves before the pipeline finishes.
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
-from support_assistant.api.dependencies import LLM, Repository, Time
+from support_assistant.api.dependencies import LLM, Metrics, Repository, Time
 from support_assistant.api.schemas import CreateTicketRequest, TicketAccepted, TicketView
 from support_assistant.domain import Ticket, new_ticket_id
 from support_assistant.pipeline.orchestrator import run_pipeline
@@ -40,6 +40,7 @@ def create_ticket(
     repository: Repository,
     llm: LLM,
     clock: Time,
+    metrics: Metrics,
 ) -> TicketAccepted:
     """Record the ticket, schedule the pipeline, and return the id immediately.
 
@@ -49,7 +50,9 @@ def create_ticket(
 
     `tools`, `resolve_template` and `max_iterations` are deliberately not passed --
     `run_pipeline` has production defaults for all three, and choosing them here would put
-    pipeline configuration in the HTTP layer.
+    pipeline configuration in the HTTP layer. `metrics` *is* passed: it is the one
+    registry `GET /metrics` also reads, so the background run has to write to that same
+    object rather than the module default.
     """
     now = clock.now()
     ticket = Ticket(
@@ -62,7 +65,9 @@ def create_ticket(
     )
     repository.create(ticket)
 
-    background.add_task(run_pipeline, ticket.id, repository=repository, llm=llm, clock=clock)
+    background.add_task(
+        run_pipeline, ticket.id, repository=repository, llm=llm, clock=clock, metrics=metrics
+    )
 
     return TicketAccepted(id=ticket.id, status=ticket.status)
 

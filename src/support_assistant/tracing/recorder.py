@@ -8,6 +8,7 @@ run; the orchestrator persists them with the terminal state in one transaction
 The recorder is injected, not global, so a test asserts on `recorder.steps` directly.
 """
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 from support_assistant.clock import Clock
@@ -43,8 +44,17 @@ class TraceRecorder:
     under any real clock -- the property a contract test in `test_tracing.py` pins.
     """
 
-    def __init__(self, clock: Clock) -> None:
+    def __init__(
+        self, clock: Clock, *, on_step: Callable[[TraceStep], None] | None = None
+    ) -> None:
+        """`on_step`, if given, is called with each step as it is recorded -- the seam the
+        orchestrator uses to emit a structured log line per step
+        ([OBSERVABILITY.md](../observability/OBSERVABILITY.md)). It is injected rather than
+        imported so `tracing/` stays ignorant of the logger: the trace and the log are
+        different records for different readers, and only their production point is shared.
+        """
         self._clock = clock
+        self._on_step = on_step
         self._steps: list[TraceStep] = []
         self._seq = 0
 
@@ -55,10 +65,14 @@ class TraceRecorder:
         return list(self._steps)
 
     def _record(self, cls: type[TraceStep], **fields: Any) -> None:
-        """Assign the next `seq`, stamp `ts` from the injected clock, append. The one
-        place a step is built -- so no method can forget the ordering fields or the clock."""
+        """Assign the next `seq`, stamp `ts` from the injected clock, append, then notify
+        `on_step`. The one place a step is built -- so no method can forget the ordering
+        fields, the clock, or the hook."""
         self._seq += 1
-        self._steps.append(cls(seq=self._seq, ts=self._clock.now(), **fields))
+        step = cls(seq=self._seq, ts=self._clock.now(), **fields)
+        self._steps.append(step)
+        if self._on_step is not None:
+            self._on_step(step)
 
     def intent_classified(self, intent: Intent, matched_keywords: list[str]) -> None:
         self._record(IntentClassified, intent=intent, matched_keywords=matched_keywords)

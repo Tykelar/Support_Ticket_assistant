@@ -27,6 +27,8 @@ from support_assistant.api import ops, routes
 from support_assistant.clock import Clock, SystemClock
 from support_assistant.llm.fake import FakeLLM
 from support_assistant.llm.protocol import LLMClient
+from support_assistant.observability.logging import configure_logging
+from support_assistant.observability.metrics import REGISTRY, MetricRegistry
 from support_assistant.storage.protocol import TicketRepository
 from support_assistant.storage.sqlite import SqliteTicketRepository, database_path
 
@@ -48,22 +50,26 @@ def create_app(
     repository: TicketRepository | None = None,
     llm: LLMClient | None = None,
     clock: Clock | None = None,
+    metrics: MetricRegistry | None = None,
 ) -> FastAPI:
     """The application, with its collaborators injected or defaulted.
 
-    The defaults are the production ones: `FakeLLM` (deterministic, offline -- ADR 0006)
-    and a `SystemClock`. The repository is built in the lifespan rather than here, so
-    importing this module never touches the filesystem.
+    The defaults are the production ones: `FakeLLM` (deterministic, offline -- ADR 0006),
+    a `SystemClock`, and the process-wide metric `REGISTRY`. The repository is built in the
+    lifespan rather than here, so importing this module never touches the filesystem.
     """
     the_clock = clock if clock is not None else SystemClock()
     the_llm = llm if llm is not None else FakeLLM()
+    the_metrics = metrics if metrics is not None else REGISTRY
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        configure_logging()
         owned = SqliteTicketRepository(database_path(), the_clock) if repository is None else None
         app.state.repository = repository if owned is None else owned
         app.state.llm = the_llm
         app.state.clock = the_clock
+        app.state.metrics = the_metrics
         try:
             yield
         finally:

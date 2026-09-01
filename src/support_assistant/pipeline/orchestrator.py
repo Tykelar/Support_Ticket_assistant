@@ -46,6 +46,8 @@ from support_assistant.guardrails.grounding import GroundingChecker
 from support_assistant.guardrails.limits import MAX_ITERATIONS
 from support_assistant.llm.protocol import LLMClient
 from support_assistant.llm.templates import Template, spec_for
+from support_assistant.observability.logging import log_step, ticket_scope
+from support_assistant.observability.metrics import REGISTRY, MetricRegistry, record_run
 from support_assistant.storage.protocol import TicketRepository
 from support_assistant.tools import registry
 from support_assistant.tools.errors import NoDataAvailable, UserNotFound
@@ -102,6 +104,7 @@ def run_pipeline(
     tools: ToolRunner = registry.run,
     resolve_template: Callable[[ReplyTemplate], Template] = spec_for,
     max_iterations: int = MAX_ITERATIONS,
+    metrics: MetricRegistry = REGISTRY,
 ) -> None:
     """Run one ticket to a terminal state. Returns nothing: the outcome is the persisted
     ticket, not a value a caller could forget to check.
@@ -115,25 +118,41 @@ def run_pipeline(
     order to write again only appends a second `final_decision` describing an outcome that
     was never persisted (ADR 0013). A stranded ticket is the reaper's job
     ([roadmap](../../../docs/ROADMAP.md#durable-work-and-a-reaper)).
+
+    `metrics` is folded in once, below, from the finished trace -- not incremented step by
+    step inside `_decide`, which stays write-free by design
+    ([ADR 0014](../../../docs/adr/0014-metrics-derived-from-the-trace.md)). The
+    `TraceRecorder` emits a structured log line per step through its `on_step` hook, under
+    a `ticket_scope` so every line carries this `ticket_id`
+    ([OBSERVABILITY.md](../observability/OBSERVABILITY.md)).
     """
     ticket = repository.get(ticket_id)
     if ticket is None:
         raise ValueError(f"no ticket {ticket_id!r} to run")
 
-    trace = TraceRecorder(clock)
-    outcome = _decide(
-        ticket,
-        trace,
-        llm=llm,
-        tools=tools,
-        resolve_template=resolve_template,
-        max_iterations=max_iterations,
-    )
+    with ticket_scope(ticket_id):
+        trace = TraceRecorder(clock, on_step=log_step)
+        outcome = _decide(
+            ticket,
+            trace,
+            llm=llm,
+            tools=tools,
+            resolve_template=resolve_template,
+            max_iterations=max_iterations,
+        )
 
-    # The single write. No branch here: `Outcome` already carries the pairing, so there is
-    # no arm of a condition that could record one thing and persist another.
-    trace.final_decision(outcome.status, reason=outcome.reason, detail=outcome.detail)
-    repository.finalise(ticket_id, outcome.status, outcome.reply, outcome.reason, trace.steps)
+        # The single write. No branch here: `Outcome` already carries the pairing, so
+        # there is no arm of a condition that could record one thing and persist another.
+        trace.final_decision(outcome.status, reason=outcome.reason, detail=outcome.detail)
+        repository.finalise(
+            ticket_id, outcome.status, outcome.reply, outcome.reason, trace.steps
+        )
+
+        # After the write, deliberately: a run whose `finalise` raised is not counted, so
+        # the counters never claim an outcome storage does not hold.
+        record_run(
+            metrics, status=outcome.status, reason=outcome.reason, steps=trace.steps
+        )
 
 
 def _decide(
