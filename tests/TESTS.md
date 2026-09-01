@@ -111,8 +111,19 @@ This is the test that proves the brief's "one unforgivable bug" cannot ship. It 
 more than the happy path, because the happy path passing tells you the system works when
 nothing is wrong.
 
+The doctored template is a real `llm.templates.Template` — production dataclass, real
+field selection, real safe-literal set — with one amount changed, rendered through the
+same `Template.render` a genuine one uses. A control alongside it renders the *undoctored*
+template against the same facts and asserts it is clean, so a failure means the injected
+amount and not something incidental in the prose.
+
+> **Built in two halves.** The checker half exists now and asserts the `Violation`. The
+> terminal-state half — `handed_off` / `UNGROUNDED_REPLY` and the `grounding_check` step —
+> lands with the orchestrator, since nothing before it can produce a ticket outcome.
+
 Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact),
-`TEMPLATE_SAFE_LITERALS` accepted, unknown identifiers rejected.
+`TEMPLATE_SAFE_LITERALS` accepted, unknown identifiers rejected, and a `Violation`
+recording the literal with the spelling the reply used rather than a folded one.
 
 ### By component
 

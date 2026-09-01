@@ -54,9 +54,10 @@ def run_pipeline(ticket_id: str) -> None:
 
         # 3. Ground and verify
         facts = FactSet.from_observations(history)
-        reply = render(draft.template, facts)
-        violations = GroundingChecker.verify(reply, facts, draft.template)
-        trace.grounding_check(literals_checked, violations)
+        template = spec_for(draft.template)   # one spec both renders and is checked
+        reply = template.render(facts)
+        violations = GroundingChecker.verify(reply, facts, template)
+        trace.grounding_check(len(GroundingChecker.extract(reply)), violations)
         if violations:
             return finish_handoff(HandoffReason.UNGROUNDED_REPLY, detail=violations)
 
@@ -97,7 +98,11 @@ rather than by discipline.
 
 **4. Grounding runs after rendering, unconditionally.** Not "if the LLM is real". The
 check is on the output, so it costs the same either way and it cannot be forgotten during
-the swap that would make it matter.
+the swap that would make it matter. The `Template` is resolved once and used for both
+calls: rendering and verifying against *different* templates would check a reply's
+literals against the wrong safe list, which is the one way this step could pass something
+it should have caught. `guardrails/` never imports `llm/`, so the orchestrator is what
+carries the spec across ([ARCHITECTURE.md](../../../ARCHITECTURE.md) §3).
 
 **5. The tool call is wrapped, and the catch is broad.** A raising tool would otherwise
 jump straight past the line that records its result, leaving the `ok: false` step — the

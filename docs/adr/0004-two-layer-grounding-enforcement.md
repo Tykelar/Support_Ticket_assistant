@@ -62,6 +62,34 @@ Any violation fails closed: no reply is sent, the ticket is `handed_off` with
 - Two mechanisms to maintain, and some duplicated intent between them. That redundancy is
   the point.
 
+### Implemented scope
+
+The Decision above states the intent. What layer 2 actually extracts is narrower, and the
+difference matters enough to record here rather than leave a reader to infer it from the
+code:
+
+| Checked | Not checked |
+|---|---|
+| numeric literals — amounts, kWh, row counts | station names, plan names, the user's name |
+| fixture identifiers — `inv_`, `sess_`, `u_` | currencies (`EUR` is not number-, id-, or status-shaped) |
+| status words — the closed `InvoiceStatus` / `SessionStatus` vocabularies | dates |
+
+Two consequences worth stating plainly:
+
+- **Open-vocabulary entity strings are not verified.** The Decision names station names
+  and the user's name; extracting arbitrary entities from free text is the least reliable
+  part of any such checker, so layer 2 covers only the three closed classes above. Under
+  `FakeLLM` layer 1 still makes an invented station unreachable. The inversion that would
+  close this — check the reply against entity-shaped values across *all* fixtures — is in
+  [the roadmap](../ROADMAP.md#entity-coverage-in-grounding-layer-2), and
+  [GUARDRAILS.md](../../src/support_assistant/guardrails/GUARDRAILS.md) states the gap
+  where a reader meets the checker.
+- **Dates are not groundable, by construction.** The `FactSet` projection drops
+  `issued_at` / `started_at` entirely, so no template can state one and any date a real
+  model wrote would be split into digits that fail closed. That is the intended outcome,
+  not an omission — but it means "dates" in the Decision's list is aspirational, not
+  implemented.
+
 ## Alternatives considered
 
 **Structural only.** Clean, provable, cheap. Rejected: it is a property of the fake, and

@@ -120,12 +120,20 @@ Note that the fake terminates in at most three iterations, comfortably inside th
 | `session_interrupted` | the most recent session is `interrupted` or `failed` | name, station, **status**, kWh, cost of `sessions[0]` | — |
 
 ```python
-render(template: ReplyTemplate, facts: FactSet) -> str   # the reply text
-spec_for(template: ReplyTemplate) -> Template             # for GroundingChecker.verify
+spec_for(template: ReplyTemplate) -> Template   # the spec: prose, fields, safe literals
+Template.render(facts: FactSet) -> str          # the reply text
+render(template: ReplyTemplate, facts) -> str   # the lookup in front of it
 ```
 
-The orchestrator projects the `FactSet` from history, calls `render`, then passes the
-rendered text, the same `FactSet`, and `spec_for(template)` to `GroundingChecker.verify`.
+The orchestrator resolves the spec once, renders from it, and hands the rendered text, the
+same `FactSet`, and that same spec to `GroundingChecker.verify` — rendering and checking
+against different templates would compare a reply against the wrong safe list.
+
+`render` raises `ValueError`, naming the fact it wanted, when the `FactSet` cannot fill the
+template — no user name, or no invoice or session of the kind the template speaks about.
+`FakeLLM` cannot ask for that, since it picks the template from these very records; a real
+model can name any of the five, and the orchestrator's catch-all turns the refusal into a
+`TOOL_ERROR` handoff with a readable detail rather than a bare `StopIteration`.
 
 Templates interpolate **only** from the `FactSet`. There is no code path from a template
 to a value that no tool returned — that is grounding layer 1
@@ -140,8 +148,13 @@ unsourced numbers to prose an explicit, reviewable act. The only one today is th
 `billing_pending`.
 
 `templates.py` imports `FactSet` under `TYPE_CHECKING` only: `render` needs its shape for
-type-checking but duck-types at runtime, so `llm/` and `guardrails/` stay independent
-(ARCHITECTURE.md §3) and meet only in the orchestrator.
+type-checking but duck-types at runtime, so there is no direct `llm/ → guardrails/` import
+and the two packages meet in the orchestrator (ARCHITECTURE.md §3). To be precise about
+what that buys: importing `llm.templates` still pulls `guardrails.handoff` and
+`guardrails.grounding` in transitively, because `domain` names `HandoffReason` and
+`Violation`. The invariant being kept is the *direct* dependency between components, which
+is what makes each testable on its own — not module-graph isolation, which `domain` has
+never given anyone.
 
 ---
 

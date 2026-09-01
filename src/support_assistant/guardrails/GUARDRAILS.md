@@ -90,6 +90,11 @@ facts.allowed_literals()   # {"Ben", "inv_204", "42.10", "EUR", "failed", "3", .
 There is no code path from a template to a value that no tool returned. Under `FakeLLM`
 this alone makes invented data impossible.
 
+`allowed_literals()` is the whole-facts view — every fact as text, for a reader, a test, or
+a debugging session. The checker does **not** use it: it compares per class through
+`allowed_numbers()`, `allowed_identifiers()` and `allowed_statuses()`, which is stricter,
+because numbers have to compare as `Decimal` rather than as strings.
+
 ### Layer 2 — post-hoc verification (`GroundingChecker`)
 
 Runs on the **rendered reply**, unconditionally, regardless of which client produced it.
@@ -109,7 +114,7 @@ decides.
 |---|---|---|
 | Numbers | `\d+(?:[.,]\d+)?` | parsed to `Decimal`, so `42.10`, `42,10` and `42.1` compare equal |
 | Identifiers | fixture id patterns (`inv_`, `sess_`, `u_`) — matched and **masked out first**, so the digits inside `inv_204` are not re-read as an amount | exact match |
-| Status words | the closed vocabularies `paid\|pending\|failed`, `completed\|interrupted` | exact match against the statuses actually in the `FactSet` |
+| Status words | the closed vocabularies `paid\|pending\|failed`, `completed\|interrupted` | case-folded match against the statuses actually in the `FactSet`; the `Violation` still records the spelling the reply used |
 
 Any literal not accounted for is a `Violation`. Violations fail closed:
 `handed_off` / `UNGROUNDED_REPLY`, the reply discarded, the offending literals recorded
@@ -135,15 +140,31 @@ over-trust.
   values rather than free text. [Roadmap](../../../docs/ROADMAP.md#semantic-grounding).
 - **Open-vocabulary entities.** Extraction covers numbers, ids, and closed status
   vocabularies. An invented station name in free prose would not be caught by layer 2;
-  under `FakeLLM` it cannot occur, because layer 1 makes it unreachable. This is the main
-  gap a real provider would widen.
+  neither would an invented currency, which is none of the three shapes. Under `FakeLLM`
+  neither can occur, because layer 1 makes them unreachable. This is the main gap a real
+  provider would widen.
   [Roadmap](../../../docs/ROADMAP.md#entity-coverage-in-grounding-layer-2).
+- **Row counts are facts, so small integers are cheap.** `allowed_numbers()` includes the
+  number of invoices and of sessions, because a reply may legitimately say "all 3 of your
+  invoices". The cost is that for a user with three invoices, a bare `3` anywhere in the
+  prose passes. Deliberate, and the reason `TEMPLATE_SAFE_LITERALS` is still needed: it
+  keeps the static numbers declared even where a count would have let them through.
+- **Multi-part numerals split.** `1,234.56` extracts as `1,234` and `56`, because the
+  comma is read as a decimal separator (that is what makes `42,10` work). Both halves then
+  fail closed, so nothing unsourced gets through — but the recorded violation would read
+  oddly. No fixture amount reaches four figures.
 
 ### How it is proved
 
-A test renders through a **deliberately doctored template** that injects an amount absent
-from the tool results, and asserts the ticket reaches `handed_off` with
-`UNGROUNDED_REPLY`. That test is the evidence the unforgivable bug cannot ship.
+`test_grounding.py::test_ungrounded_literal_is_caught` builds a real `Template` — the
+production dataclass, real field selection, real safe-literal set — with one amount
+doctored into its prose, renders through it, and asserts the `Violation`. A control test
+renders the same template undoctored and asserts it is clean, so the failure is the
+injected amount and not something incidental in the prose.
+
+Once the orchestrator exists, that test gains the other half: the ticket reaching
+`handed_off` with `UNGROUNDED_REPLY` and the literal recorded in the `grounding_check`
+trace step. Together they are the evidence the unforgivable bug cannot ship.
 
 ---
 
