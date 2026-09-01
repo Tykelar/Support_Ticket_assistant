@@ -39,11 +39,26 @@ class Template:
     context: Callable[[FactSet], dict[str, str]]
     TEMPLATE_SAFE_LITERALS: frozenset[str]
 
+    def render(self, facts: FactSet) -> str:
+        """This template's prose, every field filled from `facts`.
+
+        `render()` below is this method behind a `ReplyTemplate` lookup. It is a method as
+        well as a function so the doctored-template test can render a `Template` that is
+        deliberately wrong through the *same* code path a real one takes, without reaching
+        into the private registry (TESTS.md, "the one that guards the unforgivable bug").
+        """
+        return self.body.format(**self.context(facts))
+
 
 def render(template: ReplyTemplate, facts: FactSet) -> str:
-    """The reply text for `template`, every field filled from `facts`."""
-    spec = _TEMPLATES[template]
-    return spec.body.format(**spec.context(facts))
+    """The reply text for `template`, every field filled from `facts`.
+
+    Raises `ValueError` if `facts` cannot fill the template -- no user name, or no invoice
+    or session of the kind the template speaks about. `FakeLLM` cannot ask for that, since
+    it picks the template from these very records; a real model names any of the five, and
+    failing with the missing fact named beats a bare `StopIteration` in the trace.
+    """
+    return _TEMPLATES[template].render(facts)
 
 
 def spec_for(template: ReplyTemplate) -> Template:
@@ -52,42 +67,62 @@ def spec_for(template: ReplyTemplate) -> Template:
 
 
 # --------------------------------------------------------------------------------------
-# Field selection -- which record each template speaks about
+# Field selection -- which record each template speaks about.
+#
+# Each selector raises `ValueError` naming the fact it wanted rather than letting a bare
+# `StopIteration` or `IndexError` out. The orchestrator's catch-all maps either to a
+# TOOL_ERROR handoff (GUARDRAILS.md section 2, "any unhandled exception"), so both fail
+# closed -- but only one of them tells the support agent reading the trace what was
+# missing. Plain `ValueError` for a contract violation, as in `fake.py`.
 # --------------------------------------------------------------------------------------
 
 
+def _name(facts: FactSet) -> str:
+    """The reply is addressed by name, and the name is a fact that must be sourced like
+    any other (LLM.md) -- so a missing one is a refusal, not an empty greeting."""
+    if not facts.user_name:
+        raise ValueError("a reply template needs the user's name, but the FactSet has none")
+    return facts.user_name
+
+
 def _first(invoices: tuple[InvoiceFact, ...], status: InvoiceStatus) -> InvoiceFact:
-    return next(invoice for invoice in invoices if invoice.status is status)
+    for invoice in invoices:
+        if invoice.status is status:
+            return invoice
+    raise ValueError(
+        f"a reply template needs an invoice with status {status.value}, "
+        f"but the FactSet has none"
+    )
 
 
 def _name_only(facts: FactSet) -> dict[str, str]:
-    return {"name": facts.user_name or ""}
+    return {"name": _name(facts)}
+
+
+def _invoice_with(facts: FactSet, status: InvoiceStatus) -> dict[str, str]:
+    invoice = _first(facts.invoices, status)
+    return {
+        "name": _name(facts),
+        "invoice_id": invoice.invoice_id,
+        "amount": format_amount(invoice.amount),
+        "currency": invoice.currency,
+    }
 
 
 def _failed_invoice(facts: FactSet) -> dict[str, str]:
-    invoice = _first(facts.invoices, InvoiceStatus.FAILED)
-    return {
-        "name": facts.user_name or "",
-        "invoice_id": invoice.invoice_id,
-        "amount": format_amount(invoice.amount),
-        "currency": invoice.currency,
-    }
+    return _invoice_with(facts, InvoiceStatus.FAILED)
 
 
 def _pending_invoice(facts: FactSet) -> dict[str, str]:
-    invoice = _first(facts.invoices, InvoiceStatus.PENDING)
-    return {
-        "name": facts.user_name or "",
-        "invoice_id": invoice.invoice_id,
-        "amount": format_amount(invoice.amount),
-        "currency": invoice.currency,
-    }
+    return _invoice_with(facts, InvoiceStatus.PENDING)
 
 
 def _latest_session(facts: FactSet) -> dict[str, str]:
+    if not facts.sessions:
+        raise ValueError("a reply template needs a charging session, but the FactSet has none")
     session = facts.sessions[0]  # loaders return newest-first
     return {
-        "name": facts.user_name or "",
+        "name": _name(facts),
         "station": session.station,
         "status": session.status.value,
         "kwh": format_amount(session.kwh),
