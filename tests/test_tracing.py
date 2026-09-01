@@ -22,8 +22,7 @@ from support_assistant.domain import (
     ToolResult,
     User,
 )
-from support_assistant.guardrails.grounding import Violation
-from support_assistant.guardrails.handoff import HandoffReason
+from support_assistant.enums import HandoffReason
 from support_assistant.tools.errors import NoDataAvailable
 from support_assistant.tracing.models import (
     FinalDecision,
@@ -34,6 +33,7 @@ from support_assistant.tracing.models import (
     ToolError,
     ToolResultStep,
     TraceStep,
+    Violation,
 )
 from support_assistant.tracing.recorder import TraceRecorder, as_tool_error
 from support_assistant.tracing.summarise import summarise

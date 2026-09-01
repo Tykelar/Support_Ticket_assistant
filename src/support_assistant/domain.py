@@ -15,19 +15,20 @@ from typing import Annotated, Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from support_assistant.enums import (
+    HandoffReason,
     Intent,
     InvoiceStatus,
     ReplyTemplate,
     SessionStatus,
     TicketStatus,
 )
-from support_assistant.guardrails.handoff import HandoffReason
 from support_assistant.tracing.models import TraceStep
 
 __all__ = [
     "ChargingSession",
     "FixtureRecord",
     "Handoff",
+    "HandoffReason",
     "Intent",
     "Invoice",
     "InvoiceStatus",
@@ -46,7 +47,10 @@ __all__ = [
 ]
 """The enums are defined in `enums.py` so that `tracing.models` can name them without
 importing this module back. They are re-exported here because this is where the domain
-vocabulary lives, and a reader looking for `Intent` should find it beside `Ticket`."""
+vocabulary lives, and a reader looking for `Intent` should find it beside `Ticket`.
+`HandoffReason` is among them (ADR 0011): it is one of ARCHITECTURE.md section 4's
+cross-system contracts, and keeping it in `guardrails/` put this module underneath a
+component package."""
 
 TICKET_ID_BYTES = 16
 """128 bits. The ticket id is the only thing protecting a trace (API.md), so it must be
@@ -62,10 +66,10 @@ def format_amount(value: Decimal) -> str:
     """How a money or kWh amount is written in a reply and in `FactSet.allowed_literals()`
     -- always two decimal places.
 
-    Shared so `guardrails/factset.py` and `llm/templates.py` produce byte-identical text
-    without importing each other (ARCHITECTURE.md section 3). Grounding compares numeric
-    literals as `Decimal`, so this only fixes the *text form*: `42.1` and `42.10` are the
-    same fact either way.
+    Lives here because `guardrails/factset.py` and `llm/templates.py` both write amounts
+    and may not import each other (ARCHITECTURE.md section 3). It fixes only the *text
+    form*: grounding compares numeric literals as `Decimal`, so `42.1` and `42.10` are the
+    same fact whichever way they are written.
     """
     return f"{value:.2f}"
 

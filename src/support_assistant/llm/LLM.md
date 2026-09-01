@@ -147,14 +147,18 @@ will flag it and hand the ticket off. This is a deliberate speed bump: it makes 
 unsourced numbers to prose an explicit, reviewable act. The only one today is the `"3"` in
 `billing_pending`.
 
+Numbers and only numbers: the checker unions the set into its allowed *numbers*, never
+into the identifiers or the status words, so a template cannot use its safe list to
+whitelist `failed` (GUARDRAILS.md).
+
 `templates.py` imports `FactSet` under `TYPE_CHECKING` only: `render` needs its shape for
 type-checking but duck-types at runtime, so there is no direct `llm/ → guardrails/` import
-and the two packages meet in the orchestrator (ARCHITECTURE.md §3). To be precise about
-what that buys: importing `llm.templates` still pulls `guardrails.handoff` and
-`guardrails.grounding` in transitively, because `domain` names `HandoffReason` and
-`Violation`. The invariant being kept is the *direct* dependency between components, which
-is what makes each testable on its own — not module-graph isolation, which `domain` has
-never given anyone.
+and the two packages meet in the orchestrator (ARCHITECTURE.md §3). Since
+[ADR 0011](../../../docs/adr/0011-shared-vocabulary-below-the-components.md) that is
+module-graph isolation too: `domain` names `HandoffReason` from `enums` and `Violation`
+from `tracing.models`, so importing `llm.templates` no longer pulls `guardrails` in at all.
+`tests/test_layering.py` enforces both — it parses the imports and skips `TYPE_CHECKING`
+blocks, so the arrangement here stays legal and a runtime import would not.
 
 ---
 

@@ -125,6 +125,10 @@ Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact)
 `TEMPLATE_SAFE_LITERALS` accepted, unknown identifiers rejected, and a `Violation`
 recording the literal with the spelling the reply used rather than a folded one.
 
+And the pair that keeps the entity mask honest: a station name containing a digit renders
+clean, while a station name the `FactSet` does **not** hold is still scanned and still
+fails. A mask that swallowed both would be a hole, not a fix.
+
 ### By component
 
 | File | Covers |
@@ -134,8 +138,9 @@ recording the literal with the spelling the reply used rather than a folded one.
 | `test_tools.py` | the three tools; `UserNotFound` / `NoDataAvailable` / `ToolExecutionError`; empty-list-is-not-success (ADR 0009); **`u_006`'s malformed row fails without breaking `u_002`** |
 | `test_registry.py` | dispatch, unregistered name rejected, argument schema validation |
 | `test_fake_llm.py` | keyword rules per intent, **tie resolves to `unknown`**, step state machine ordering |
-| `test_factset.py` | projection from observations, `allowed_literals()` |
-| `test_grounding.py` | the checker, as above |
+| `test_factset.py` | projection from observations, `allowed_literals()`, `allowed_entities()` |
+| `test_grounding.py` | the checker, as above; sourced entity text not re-scanned; `TEMPLATE_SAFE_LITERALS` is numbers-only; every status enum member extractable |
+| `test_layering.py` | the dependency direction of ARCHITECTURE.md §3, parsed from the imports (ADR 0011) |
 | `test_repository_contract.py` | **parametrised over both implementations** |
 | `test_tracing.py` | step ordering, `seq` monotonicity, **`ts` increasing with `seq`**, summarisation rules |
 | `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input |
@@ -148,6 +153,12 @@ recording the literal with the spelling the reply used rather than a folded one.
 `InMemoryTicketRepository`.** A test double that has drifted from the real implementation
 is worse than no double — it makes the whole suite confidently wrong. This is the test
 that keeps them honest ([STORAGE.md](../src/support_assistant/storage/STORAGE.md)).
+
+**`test_layering.py` parses every module's imports rather than trusting the diagram.**
+A component boundary is the kind of thing that erodes one convenient import at a time, and
+each one looks harmless in review — ADR 0011 exists because that already happened once. It
+skips `if TYPE_CHECKING:` blocks, and it names the single sanctioned `llm → tools` import
+so that a second one fails.
 
 **`test_pipeline.py` asserts every `HandoffReason` member is reachable.** A reason that no
 code path can produce is dead code pretending to be a guardrail; a parametrised test over

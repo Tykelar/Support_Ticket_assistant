@@ -12,8 +12,8 @@ import pytest
 
 from support_assistant.domain import Observation, ToolCall
 from support_assistant.enums import ReplyTemplate, SessionStatus
-from support_assistant.guardrails.checker import GroundingChecker
 from support_assistant.guardrails.factset import FactSet, SessionFact
+from support_assistant.guardrails.grounding import GroundingChecker
 from support_assistant.llm import templates
 from support_assistant.tools import registry
 

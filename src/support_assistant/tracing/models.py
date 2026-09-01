@@ -6,6 +6,11 @@ type. Shapes and reasoning: TRACEABILITY.md.
 
 `ts` always comes from an injected `Clock` (ADR 0008) -- these models never fill it in
 themselves, which is why it has no default.
+
+`Violation` is defined here rather than in `guardrails/` because it is a trace payload
+whose JSON shape TRACEABILITY.md owns, and because a guardrail type named by this module
+would put `guardrails` underneath `domain`
+([ADR 0011](../../../docs/adr/0011-shared-vocabulary-below-the-components.md)).
 """
 
 from datetime import datetime
@@ -13,9 +18,29 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from support_assistant.enums import Intent, TicketStatus
-from support_assistant.guardrails.grounding import Violation
-from support_assistant.guardrails.handoff import HandoffReason
+from support_assistant.enums import HandoffReason, Intent, LiteralClass, TicketStatus
+
+
+class Violation(BaseModel):
+    """One literal in a reply that no tool result accounts for.
+
+    Recorded in the trace so a reader can see *which* claim was unsourced, not merely
+    that the reply was withheld. Serialised with `class` as the key, matching the trace
+    JSON in TRACEABILITY.md; the field is renamed here only because `class` is a Python
+    keyword.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    literal: str
+    """The offending text exactly as it appeared in the reply."""
+
+    literal_class: LiteralClass = Field(alias="class")
+    """How the literal was extracted."""
+
+    reason: str
+    """Why it failed -- typically absent from both the FactSet and the template's
+    declared safe literals."""
 
 
 class TraceStepBase(BaseModel):

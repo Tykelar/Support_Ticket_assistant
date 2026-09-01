@@ -14,6 +14,7 @@ from pydantic import TypeAdapter, ValidationError
 from support_assistant.domain import (
     ChargingSession,
     Handoff,
+    HandoffReason,
     Intent,
     Invoice,
     InvoiceStatus,
@@ -30,7 +31,7 @@ from support_assistant.domain import (
     format_amount,
     new_ticket_id,
 )
-from support_assistant.guardrails.handoff import HandoffReason
+from support_assistant.enums import LiteralClass
 
 _STEP = TypeAdapter(Step)
 
@@ -64,6 +65,22 @@ def test_handoff_reason_members_match_the_closed_set() -> None:
     }
 
 
+def test_literal_class_members_match_the_traces_class_key() -> None:
+    # TRACEABILITY.md's grounding_check JSON carries "class": "number". A closed enum for
+    # the same reason SessionStatus is one -- the ROADMAP adds a fourth, `contradiction`,
+    # with semantic grounding.
+    assert {c.value for c in LiteralClass} == {"number", "identifier", "status"}
+
+
+def test_handoff_reason_is_re_exported_by_domain() -> None:
+    # It is one of ARCHITECTURE.md section 4's cross-system contracts, so it lives in
+    # enums.py beside the other five and is re-exported here (ADR 0011).
+    from support_assistant import domain, enums
+
+    assert domain.HandoffReason is enums.HandoffReason
+    assert "HandoffReason" in domain.__all__
+
+
 def test_session_status_members_match_tools_md() -> None:
     assert {s.value for s in SessionStatus} == {"completed", "interrupted", "failed"}
 
@@ -74,7 +91,15 @@ def test_invoice_status_members_match_tools_md() -> None:
 
 @pytest.mark.parametrize(
     "enum_cls",
-    [Intent, TicketStatus, SessionStatus, InvoiceStatus, HandoffReason, ReplyTemplate],
+    [
+        Intent,
+        TicketStatus,
+        SessionStatus,
+        InvoiceStatus,
+        HandoffReason,
+        ReplyTemplate,
+        LiteralClass,
+    ],
 )
 def test_enums_serialise_as_their_string_value(enum_cls: type) -> None:
     # The API and the trace payloads are JSON; an enum that serialises as

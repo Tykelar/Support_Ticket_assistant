@@ -8,12 +8,14 @@ evidence the brief's "one unforgivable bug" cannot ship (GUARDRAILS.md section 3
 pipeline phase; here the checker is exercised directly.
 """
 
+from decimal import Decimal
+
 import pytest
 
 from support_assistant.domain import Observation, ToolCall
-from support_assistant.enums import ReplyTemplate
-from support_assistant.guardrails.checker import GroundingChecker
-from support_assistant.guardrails.factset import FactSet
+from support_assistant.enums import InvoiceStatus, ReplyTemplate, SessionStatus
+from support_assistant.guardrails.factset import FactSet, SessionFact
+from support_assistant.guardrails.grounding import GroundingChecker
 from support_assistant.llm import templates
 from support_assistant.tools import registry
 
@@ -160,13 +162,14 @@ def test_a_grounded_status_matches_whatever_its_case() -> None:
 
 
 def test_extract_returns_one_entry_per_literal_occurrence() -> None:
+    facts = _facts("u_002", "get_invoices")
     reply = "Invoice inv_204 for 42.10 EUR is paid; invoice inv_203 for 38.90 EUR is paid."
-    kinds = [lit.kind for lit in GroundingChecker.extract(reply)]
+    kinds = [lit.kind for lit in GroundingChecker.extract(reply, facts)]
 
     assert kinds.count("identifier") == 2      # inv_204, inv_203
     assert kinds.count("number") == 2          # 42.10, 38.90
     assert kinds.count("status") == 2          # paid, paid
-    assert len(GroundingChecker.extract("Nothing factual here.")) == 0
+    assert len(GroundingChecker.extract("Nothing factual here.", facts)) == 0
 
 
 def test_verify_checks_exactly_the_extracted_literals() -> None:
@@ -174,4 +177,101 @@ def test_verify_checks_exactly_the_extracted_literals() -> None:
     reply = "Invoice inv_204 for 42.10 EUR has a failed payment."
     # every literal is grounded, so a clean reply yields no violations but did check some
     assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
-    assert len(GroundingChecker.extract(reply)) >= 3
+    assert len(GroundingChecker.extract(reply, facts)) >= 3
+
+
+# --------------------------------------------------------------------------------------
+# Sourced entity text is not re-scanned
+# --------------------------------------------------------------------------------------
+
+
+def _session_facts(station: str) -> FactSet:
+    return FactSet(
+        user_name="Ana Ribeiro",
+        user_id="u_001",
+        sessions=(
+            SessionFact(
+                session_id="sess_1001",
+                station=station,
+                kwh=Decimal("4.00"),
+                cost=Decimal("1.60"),
+                status=SessionStatus.COMPLETED,
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize("station", ["A1 Norte", "Porto Norte 2", "Lyon 7 Confluence"])
+def test_a_station_name_containing_a_digit_is_not_read_as_an_amount(station: str) -> None:
+    # The station came from a tool result, so every character of it is sourced. Re-reading
+    # its digits as an ungrounded amount would withhold an honest reply -- fail closed on
+    # a fact, which is the one direction "fail closed" is not supposed to cover.
+    facts = _session_facts(station)
+    reply = f"Your session at {station} delivered 4.00 kWh, charged at 1.60."
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+
+
+@pytest.mark.parametrize("station", ["Completed Street", "Failed Bridge Park"])
+def test_a_station_name_colliding_with_the_status_vocabulary_is_not_a_status(
+    station: str,
+) -> None:
+    facts = _session_facts(station)
+    reply = f"Your session at {station} is completed."
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+
+
+def test_an_entity_the_factset_does_not_hold_is_still_scanned() -> None:
+    # The guard against over-masking: masking applies to sourced strings only, so an
+    # invented station's digits still fail closed.
+    facts = _session_facts("Porto Norte 2")
+    (bad,) = GroundingChecker.verify(
+        "Your session at Berlin Mitte 9 completed.", facts, _NO_SAFE_LITERALS
+    )
+    assert bad.literal == "9"
+    assert bad.literal_class == "number"
+
+
+def test_masking_an_entity_does_not_hide_an_identifier_inside_it() -> None:
+    # Identifiers are pulled before any masking, so an unsourced id in the same sentence
+    # as a sourced station is still caught.
+    facts = _session_facts("Porto Norte 2")
+    (bad,) = GroundingChecker.verify(
+        "Your session at Porto Norte 2 is on invoice inv_999.", facts, _NO_SAFE_LITERALS
+    )
+    assert bad.literal == "inv_999"
+
+
+# --------------------------------------------------------------------------------------
+# TEMPLATE_SAFE_LITERALS is a numbers allowlist, and only that
+# --------------------------------------------------------------------------------------
+
+
+def test_a_safe_literal_does_not_whitelist_a_status_word() -> None:
+    # LLM.md: "Any *number* a template states in its own static prose". A template must
+    # not be able to switch off status grounding by naming a word in its safe list.
+    facts = _facts("u_001", "get_invoices")  # every invoice paid -- "failed" is not a fact
+    (bad,) = GroundingChecker.verify("Your payment failed.", facts, _Template("failed"))
+    assert bad.literal == "failed"
+    assert bad.literal_class == "status"
+
+
+def test_a_safe_literal_does_not_whitelist_an_identifier() -> None:
+    facts = _facts("u_001", "get_invoices")
+    (bad,) = GroundingChecker.verify("See invoice inv_999.", facts, _Template("inv_999"))
+    assert bad.literal == "inv_999"
+    assert bad.literal_class == "identifier"
+
+
+# --------------------------------------------------------------------------------------
+# The status vocabulary is the enums', not a second copy of them
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", [*InvoiceStatus, *SessionStatus], ids=lambda s: s.value)
+def test_every_enumerated_status_word_is_extractable(status: str) -> None:
+    # enums.py: the vocabularies are closed "so that status words enter the FactSet as
+    # facts and grounding layer 2 can check them". A member the extractor cannot see is a
+    # word no reply is ever checked for -- silently unchecked, not loudly broken.
+    facts = FactSet(user_name="Ana Ribeiro", user_id="u_001")
+    extracted = GroundingChecker.extract(f"The state is {status.value}.", facts)
+    assert [lit.text for lit in extracted if lit.kind == "status"] == [status.value]

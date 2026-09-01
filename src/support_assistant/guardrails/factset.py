@@ -9,9 +9,7 @@ status words and counts; it **drops** issue/start dates, plan tier and language.
 must never state those, and layer 2's numeric scan would pick an ISO date apart into
 ungrounded digits -- not carrying them is the layer-1 guarantee for those fields.
 
-`guardrails/` may import `domain` but not `llm/` or `tools/`. This module is imported by
-the orchestrator and by `guardrails/checker.py`; nothing in `domain`/`tracing` imports it,
-so `factset -> domain -> tracing.models -> guardrails.grounding` closes no cycle.
+`guardrails/` may import `domain` but not `llm/` or `tools/` (ARCHITECTURE.md section 3).
 """
 
 from collections.abc import Iterable
@@ -108,8 +106,13 @@ class FactSet(BaseModel):
         )
 
     def allowed_literals(self) -> set[str]:
-        """Every fact as text -- what a reader (or a test) sees as "the things this reply
-        is allowed to say". The checker uses the typed helpers below; this is the union.
+        """Every fact as text -- what a reader, a test, or a debugging session sees as
+        "the things this reply is allowed to say".
+
+        Not what the checker compares against: it goes per class through the typed helpers
+        below, which is stricter, because numbers have to compare as `Decimal` rather than
+        as strings. This view is broader in the other direction too -- it carries the
+        currency and the name tokens, which no helper does.
         """
         literals: set[str] = set()
 
@@ -170,6 +173,21 @@ class FactSet(BaseModel):
         if self.user_id:
             identifiers.add(self.user_id)
         return identifiers
+
+    def allowed_entities(self) -> set[str]:
+        """The open-vocabulary strings that are nonetheless facts: station names and the
+        user's name.
+
+        Layer 2 cannot verify these -- extracting arbitrary entities from free text is the
+        least reliable part of any such checker (ADR 0004) -- but it can recognise the ones
+        it already sourced and stop re-reading them as something else. A station called
+        `A1 Norte` holds a digit that is not an amount, and one called `Completed Street`
+        holds a word that is not a status. Whole spans, exactly as the tool returned them.
+        """
+        entities = {session.station for session in self.sessions}
+        if self.user_name:
+            entities.add(self.user_name)
+        return entities
 
     def allowed_statuses(self) -> set[str]:
         """The status words actually present -- checked as an exact, closed vocabulary."""

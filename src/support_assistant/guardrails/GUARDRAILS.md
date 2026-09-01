@@ -95,18 +95,25 @@ a debugging session. The checker does **not** use it: it compares per class thro
 `allowed_numbers()`, `allowed_identifiers()` and `allowed_statuses()`, which is stricter,
 because numbers have to compare as `Decimal` rather than as strings.
 
+`allowed_entities()` is the fourth helper and the odd one out — it is what layer 2 does
+*not* check but has to recognise. See the entity row in layer 2's table below.
+
 ### Layer 2 — post-hoc verification (`GroundingChecker`)
 
 Runs on the **rendered reply**, unconditionally, regardless of which client produced it.
 
 ```python
-GroundingChecker.extract(reply: str) -> list[Literal]
+GroundingChecker.extract(reply: str, facts: FactSet) -> list[Literal]
 GroundingChecker.verify(reply: str, facts: FactSet, template: Template) -> list[Violation]
 ```
 
+`extract` takes the facts because two kinds of span are masked out before scanning, and
+`literals_checked` in the trace has to be the count of what was really checked — so the
+two cannot take different views of the reply (TRACEABILITY.md).
+
 `extract` pulls every factual token out of the finished text; `verify` checks each
 against the `FactSet` and `template.TEMPLATE_SAFE_LITERALS` and returns one `Violation`
-per unsourced one. The orchestrator records `len(extract(reply))` as `literals_checked`
+per unsourced one. The orchestrator records `len(extract(reply, facts))` as `literals_checked`
 and hands off on a non-empty `verify` result — the guardrail reports, the orchestrator
 decides.
 
@@ -114,7 +121,8 @@ decides.
 |---|---|---|
 | Numbers | `\d+(?:[.,]\d+)?` | parsed to `Decimal`, so `42.10`, `42,10` and `42.1` compare equal |
 | Identifiers | fixture id patterns (`inv_`, `sess_`, `u_`) — matched and **masked out first**, so the digits inside `inv_204` are not re-read as an amount | exact match |
-| Status words | the closed vocabularies `paid\|pending\|failed`, `completed\|interrupted` | case-folded match against the statuses actually in the `FactSet`; the `Violation` still records the spelling the reply used |
+| Status words | the closed `InvoiceStatus` / `SessionStatus` vocabularies, with the pattern **built from the enum members** rather than retyped | case-folded match against the statuses actually in the `FactSet`; the `Violation` still records the spelling the reply used |
+| Sourced entities | not extracted — **masked out first**, like identifiers. Station names and the user's name, from `allowed_entities()` | n/a. A station the tools returned is sourced text: `A1 Norte` is not an ungrounded `1`, and `Completed Street` is not a status word. Only strings the `FactSet` holds are masked, so an invented station's digits are still scanned |
 
 Any literal not accounted for is a `Violation`. Violations fail closed:
 `handed_off` / `UNGROUNDED_REPLY`, the reply discarded, the offending literals recorded
@@ -124,6 +132,10 @@ in the trace as evidence.
 
 A template's own static prose may contain numbers — "within 3 business days". Those are
 not facts and will never be in a `FactSet`, so each template declares them explicitly.
+
+It is a **numbers** allowlist and nothing else: the set is unioned into the allowed
+numbers only, never into the identifiers or the status words. A template that could
+whitelist `failed` would be switching off half the check on its own authority.
 
 The allowlist is per-template and small by design. Adding a number to prose means adding
 it here, which is a visible, reviewable act rather than a silent erosion of the
@@ -142,7 +154,9 @@ over-trust.
   vocabularies. An invented station name in free prose would not be caught by layer 2;
   neither would an invented currency, which is none of the three shapes. Under `FakeLLM`
   neither can occur, because layer 1 makes them unreachable. This is the main gap a real
-  provider would widen.
+  provider would widen. Note the masking above narrows the *false positive* side of this,
+  not the false negative: a **sourced** station is no longer re-read as digits, while an
+  invented one is scanned exactly as before.
   [Roadmap](../../../docs/ROADMAP.md#entity-coverage-in-grounding-layer-2).
 - **Row counts are facts, so small integers are cheap.** `allowed_numbers()` includes the
   number of invoices and of sessions, because a reply may legitimately say "all 3 of your
@@ -175,13 +189,12 @@ guardrails/
   __init__.py
   factset.py       FactSet + InvoiceFact / SessionFact, projection from observations,
                    allowed_literals() and the per-class allowed_* helpers
-  grounding.py     Violation only — a leaf so tracing.models can import it without a cycle
-  checker.py       GroundingChecker, Literal, the extraction regexes
-  handoff.py       HandoffReason enum + typed failures
+  grounding.py     GroundingChecker, Literal, the extraction rules
   limits.py        MAX_ITERATIONS + max_iterations()
   GUARDRAILS.md    this file
 ```
 
-`checker.py` is separate from `grounding.py` because it imports `FactSet` (→ `domain` →
-`tracing.models` → `guardrails.grounding`); keeping `GroundingChecker` out of
-`grounding.py` is what stops that path closing an import cycle.
+Two types this package produces are defined outside it, so that `domain` does not end up
+importing a component: `HandoffReason` and `LiteralClass` are in `enums.py`, and
+`Violation` is in `tracing/models.py` with the trace step that carries it
+([ADR 0011](../../../docs/adr/0011-shared-vocabulary-below-the-components.md)).

@@ -92,7 +92,7 @@ dependency direction below rules out:
 | Module | Holds |
 |---|---|
 | `domain.py` | `Ticket`, `User`, `ChargingSession`, `Invoice`, `ToolResult`, and the `ToolCall \| Reply \| Handoff` decision union + `Observation` — the vocabulary of [CONTEXT.md](CONTEXT.md) as types. `ToolResult` and the decision union are here rather than in `tools/` or `llm/` because `llm/` and `guardrails/` both consume them (`FactSet.from_observations`), and neither may import the other |
-| `enums.py` | `Intent`, `TicketStatus`, `SessionStatus`, `InvoiceStatus`, `ReplyTemplate`. Separate from `domain.py` only because a ticket carries its trace and a trace step names an intent; the enums are the layer both can depend on. Re-exported by `domain.py` |
+| `enums.py` | `Intent`, `TicketStatus`, `SessionStatus`, `InvoiceStatus`, `ReplyTemplate`, `HandoffReason`, `LiteralClass`. Separate from `domain.py` only because a ticket carries its trace and a trace step names an intent; the enums are the layer both can depend on. `HandoffReason` and `LiteralClass` are here rather than in `guardrails/`, which is what keeps `domain.py` from importing a component package ([ADR 0011](docs/adr/0011-shared-vocabulary-below-the-components.md)). The domain ones are re-exported by `domain.py` |
 | `clock.py` | `Clock`, `SystemClock`, `FrozenClock` (ADR 0008) |
 
 
@@ -113,6 +113,13 @@ Dependencies point one way: inward from `api`, downward from `pipeline`. Nothing
 `api`, and `llm` / `tools` / `guardrails` know nothing about each other — they meet only
 in the orchestrator. That is what keeps each one testable in isolation.
 
+Two edges are worth naming because they are the ones a reader would otherwise trip over.
+`domain` imports `tracing.models`, because a `Ticket` carries its trace — so that one
+module stays below `domain` and holds `Violation`. And `guardrails` imports
+`tracing.models` for that same `Violation`. Both follow from
+[ADR 0011](docs/adr/0011-shared-vocabulary-below-the-components.md);
+`tests/test_layering.py` parses the imports and fails on anything else.
+
 ---
 
 ## 4. Contracts fixed across the system
@@ -125,7 +132,7 @@ cross-cutting change.
 **Intent** — `billing_question`, `charging_session_problem`, `unknown`. Exactly the
 brief's categories; `unknown` is a handoff trigger, not a category to serve.
 
-**`HandoffReason`** — a closed enum. Every handoff carries exactly one:
+**`HandoffReason`** — a closed enum in `enums.py`. Every handoff carries exactly one:
 
 | Reason | Raised when |
 |---|---|

@@ -11,9 +11,7 @@ The recorder is injected, not global, so a test asserts on `recorder.steps` dire
 from typing import Any, Literal
 
 from support_assistant.clock import Clock
-from support_assistant.enums import Intent, TicketStatus
-from support_assistant.guardrails.grounding import Violation
-from support_assistant.guardrails.handoff import HandoffReason
+from support_assistant.enums import HandoffReason, Intent, TicketStatus
 from support_assistant.tracing.models import (
     FinalDecision,
     GroundingCheck,
@@ -23,6 +21,7 @@ from support_assistant.tracing.models import (
     ToolError,
     ToolResultStep,
     TraceStep,
+    Violation,
 )
 
 

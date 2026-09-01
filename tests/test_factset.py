@@ -110,6 +110,26 @@ def test_identifier_and_status_helpers_are_the_typed_subsets() -> None:
     assert facts.allowed_statuses() == {"failed", "paid"}
 
 
+def test_allowed_entities_holds_the_open_vocabulary_strings_that_are_facts() -> None:
+    # The strings layer 2 cannot verify but layer 1 sourced: station names and the user's
+    # name. The checker masks these out of a reply before scanning it, so a real station
+    # whose name contains a digit does not read as an ungrounded amount.
+    facts = FactSet.from_observations(_history("u_003", "get_charging_sessions"))
+    assert facts.allowed_entities() == {"Chloe Martin", "Lyon Part-Dieu", "Lyon Confluence"}
+
+
+def test_allowed_entities_excludes_ids_amounts_and_status_words() -> None:
+    # Masking is a weakening -- it must cover only what no other class already checks.
+    facts = FactSet.from_observations(_history("u_002", "get_invoices"))
+    entities = facts.allowed_entities()
+    assert entities == {"Ben Carter"}
+    assert entities.isdisjoint({"inv_204", "42.10", "failed", "EUR", "u_002"})
+
+
+def test_allowed_entities_is_empty_without_facts() -> None:
+    assert FactSet.from_observations([]).allowed_entities() == set()
+
+
 def test_charging_literals_include_session_ids_stations_and_statuses() -> None:
     facts = FactSet.from_observations(_history("u_003", "get_charging_sessions"))
     literals = facts.allowed_literals()

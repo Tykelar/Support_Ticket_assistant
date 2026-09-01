@@ -89,6 +89,22 @@ Two consequences worth stating plainly:
   model wrote would be split into digits that fail closed. That is the intended outcome,
   not an omission — but it means "dates" in the Decision's list is aspirational, not
   implemented.
+- **The comparison is per class, not against `allowed_literals()`.** The Decision names
+  that method; the checker does not use it. It compares numbers as `Decimal` through
+  `allowed_numbers()`, and identifiers and status words through `allowed_identifiers()`
+  and `allowed_statuses()` — stricter than a string-set membership test, since `42.1` and
+  `42.10` are one fact. `allowed_literals()` remains the whole-facts view for a reader, a
+  test or a debugging session.
+- **`TEMPLATE_SAFE_LITERALS` is a numbers allowlist only.** The Decision describes it for
+  static prose numbers, and that is exactly where it applies: it is never unioned into the
+  identifier or status vocabularies, so a template cannot use it to whitelist `failed`.
+- **Sourced entity text is masked, not re-scanned.** Station names and the user's name
+  come out of a tool result, so `extract` blanks those spans (from
+  `FactSet.allowed_entities()`) before the numeric and status scans. Without it a real
+  station called `A1 Norte` withheld an honest reply on an ungrounded `1`, and one called
+  `Completed Street` on a status word — failing closed against a *fact*, which is the one
+  direction the principle was never meant to cover. Only strings the `FactSet` holds are
+  masked, so an invented station is scanned exactly as before.
 
 ## Alternatives considered
 

@@ -103,6 +103,11 @@ actually be reading:
   "detail": "get_invoices found no records for u_004" }
 ```
 
+`Violation` is defined in `tracing/models.py` rather than in `guardrails/`: it is the
+payload of this step, and a guardrail type named here would put that whole package
+underneath `domain` ([ADR 0011](../../../docs/adr/0011-shared-vocabulary-below-the-components.md)).
+Its `class` key is a `LiteralClass` — `number`, `identifier` or `status`.
+
 Grounding violations record the specific offending literals — the evidence for why a
 reply was withheld:
 
@@ -166,6 +171,8 @@ check that passed from one that had nothing to look at: `passed: true, literals_
 is a reply the checker never really inspected, and a bare `passed: true` would hide it.
 The orchestrator supplies the count as `len(GroundingChecker.extract(reply))` — the same
 extraction `verify` runs — so it is exactly the number of literals that were checked.
+That is why `extract` takes the `FactSet` as well as the reply: it masks sourced spans
+before scanning, and a count taken without them would not describe the same check.
 
 The recorder is injected, not global, so tests assert on the recorded steps directly.
 
