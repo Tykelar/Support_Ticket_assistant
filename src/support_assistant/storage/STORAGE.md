@@ -28,6 +28,18 @@ class TicketRepository(Protocol):
 Three methods, because the pipeline only ever does three things: record a new ticket, read
 one back, and write a terminal state.
 
+Implementations are constructed with a `Clock`, because `finalise` stamps `updated_at` and
+nothing in this system reads the wall clock
+([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
+
+Two typed failures, defined beside the protocol so both implementations raise the same
+ones: `TicketAlreadyExists` from `create`, and `TicketNotFound` from `finalise`. The
+second is the one worth arguing for -- a silent no-op there would leave the orchestrator
+believing it had written a terminal state that nothing recorded, which is the
+stuck-in-`processing` outcome the catch-all exists to prevent. `get` is the exception: a
+missing ticket returns `None`, because "does this ticket exist?" is a question the API
+asks on every `GET` and a 404 is a normal answer ([API.md](../api/API.md)).
+
 **`finalise` is one call, not four setters.** Status, reply, reason, and trace are written
 in a single transaction. That is what makes it impossible to observe a ticket that is
 `replied` but whose trace is still being written, or `handed_off` with a stale reply from
@@ -53,7 +65,19 @@ isn't one, and adding it would split a read that is always done together.
 | Implementation | Used by | Notes |
 |---|---|---|
 | `SqliteTicketRepository` | the running service | file-backed, `PRAGMA journal_mode=WAL` |
-| `InMemoryTicketRepository` | tests | a dict, same protocol, no I/O |
+| `InMemoryTicketRepository` | tests | a dict of deep copies, same protocol, no I/O |
+
+`SqliteTicketRepository` holds **one connection** with `check_same_thread=False` and puts
+every operation behind a lock. Both halves are needed: the pipeline runs as a background
+task off the event loop, so the repository is reached from a worker thread, and a
+connection per call would make `:memory:` lose its contents between calls. The lock is
+what makes [PIPELINE.md](../pipeline/PIPELINE.md)'s "the repository serialises writes"
+true rather than aspirational.
+
+The in-memory one stores and returns **deep copies**. SQLite hands back a freshly parsed
+row every time, so a caller that mutated what it read could not affect the store; a dict
+of live objects would let it, and the double would then be quietly more permissive than
+the thing it stands in for.
 
 Both are exercised by **one shared contract test suite**, parametrised over the two
 implementations. This is the part that matters: a test double that has quietly drifted
@@ -118,6 +142,12 @@ typed column per field would be a wide sparse table. `(ticket_id, seq)` gives or
 identity; `ts` and `type` are promoted to columns because they are present on every step
 and are the two fields worth filtering or sorting by; `payload` holds the rest.
 
+A step is written by `TypeAdapter(TraceStep).dump_python(step, mode="json",
+by_alias=True)` and read back through the same adapter, so a persisted trace reconstructs
+into the same typed steps rather than untyped dicts, and `Violation` keeps the `class` key
+[TRACEABILITY.md](../tracing/TRACEABILITY.md) documents. The payload is dumped with sorted
+keys, so a persisted step is byte-stable run to run.
+
 The cost is that steps are not queryable by their inner fields in SQL. Acceptable — the
 access pattern is "fetch every step for one ticket, in order", which is exactly what the
 primary key serves. Aggregate questions ("how often does grounding fail?") are answered by
@@ -141,8 +171,8 @@ metrics, not by querying traces.
 ```
 storage/
   __init__.py
-  protocol.py     TicketRepository
-  sqlite.py       SqliteTicketRepository, schema DDL, connection handling
+  protocol.py     TicketRepository, TicketAlreadyExists, TicketNotFound
+  sqlite.py       SqliteTicketRepository, schema DDL, connection handling, database_path()
   memory.py       InMemoryTicketRepository
   STORAGE.md      this file
 ```
