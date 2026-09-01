@@ -1,0 +1,34 @@
+# The build context is the repository root (deploy/docker-compose.yml sets `context: ..`),
+# so this file lives here rather than in deploy/ -- Docker only reads <context>/.dockerignore.
+# Keep the context small and never bake a local database or virtualenv into an image.
+
+.git
+.gitignore
+
+# Virtualenvs
+.venv/
+venv/
+
+# Runtime state -- must never enter an image
+data/
+*.db
+*.sqlite3
+
+# Python / tooling caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editor / OS / assistant
+.vscode/
+.claude/
+.DS_Store
+*.swp
