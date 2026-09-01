@@ -13,6 +13,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from support_assistant.domain import (
     ChargingSession,
+    Classification,
     Handoff,
     HandoffReason,
     Intent,
@@ -456,3 +457,35 @@ def test_observation_rejects_a_terminal_step() -> None:
             step=Reply(template=ReplyTemplate.BILLING_ALL_PAID),
             result=ToolResult(tool="get_user", records=[]),
         )
+
+
+# --------------------------------------------------------------------------------------
+# What the model classifies -- Classification, the return of LLMClient.classify_intent.
+# ADR 0012: the evidence travels with the intent, because the trace step carries both and
+# only the classifier knows the second half.
+# --------------------------------------------------------------------------------------
+
+
+def test_a_classification_carries_the_intent_and_its_evidence() -> None:
+    classification = Classification(
+        intent=Intent.BILLING_QUESTION, matched_keywords=("invoice", "payment")
+    )
+    assert classification.intent is Intent.BILLING_QUESTION
+    assert classification.matched_keywords == ("invoice", "payment")
+
+
+def test_a_classification_may_carry_no_evidence() -> None:
+    # A real provider has no "matched keywords" to give; the field defaults to empty so
+    # the protocol does not oblige an implementation to invent evidence (ADR 0012).
+    assert Classification(intent=Intent.UNKNOWN).matched_keywords == ()
+
+
+def test_a_classification_is_frozen() -> None:
+    classification = Classification(intent=Intent.UNKNOWN)
+    with pytest.raises(ValidationError):
+        classification.intent = Intent.BILLING_QUESTION
+
+
+def test_a_classification_rejects_an_intent_outside_the_enum() -> None:
+    with pytest.raises(ValidationError):
+        Classification(intent="refund_request")

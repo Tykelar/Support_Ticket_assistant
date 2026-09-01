@@ -82,7 +82,7 @@ def _drive(fake: FakeLLM, ticket: Ticket) -> list[object]:
     ],
 )
 def test_billing_keywords_classify_as_billing_question(subject: str, body: str) -> None:
-    assert FakeLLM().classify_intent(_ticket(subject, body)) is Intent.BILLING_QUESTION
+    assert FakeLLM().classify_intent(_ticket(subject, body)).intent is Intent.BILLING_QUESTION
 
 
 @pytest.mark.parametrize(
@@ -95,46 +95,86 @@ def test_billing_keywords_classify_as_billing_question(subject: str, body: str) 
 )
 def test_charging_keywords_classify_as_charging_problem(subject: str, body: str) -> None:
     fake = FakeLLM()
-    assert fake.classify_intent(_ticket(subject, body)) is Intent.CHARGING_SESSION_PROBLEM
+    assert fake.classify_intent(_ticket(subject, body)).intent is Intent.CHARGING_SESSION_PROBLEM
+
+
+# --------------------------------------------------------------------------------------
+# The evidence -- what the `intent_classified` trace step shows a support agent (ADR 0012)
+# --------------------------------------------------------------------------------------
+
+
+def test_a_classification_carries_the_keywords_it_matched() -> None:
+    # The whole point of ADR 0012: an agent reading the trace sees *why* a ticket was
+    # categorised as it was, and only the classifier knows that.
+    classification = FakeLLM().classify_intent(_ticket("My payment failed", "invoice unpaid"))
+    assert classification.intent is Intent.BILLING_QUESTION
+    assert classification.matched_keywords == ("invoice", "payment")
+
+
+def test_the_evidence_is_the_winning_categorys_keywords_only() -> None:
+    # A ticket can hit both vocabularies. Showing the loser's hits as evidence for the
+    # winner would make the trace argue for a classification it did not make.
+    classification = FakeLLM().classify_intent(
+        _ticket("invoice and payment query", "one charging note")
+    )
+    assert classification.intent is Intent.BILLING_QUESTION
+    assert "charging" not in classification.matched_keywords
+
+
+def test_the_evidence_is_distinct_and_ordered() -> None:
+    # Deterministic byte for byte, like everything else in the fake (ADR 0006): the same
+    # ticket must produce the same trace, so the evidence cannot come out of a set.
+    ticket = _ticket("invoice invoice bill", "payment and invoice")
+    first = FakeLLM().classify_intent(ticket)
+    assert first.matched_keywords == ("bill", "invoice", "payment")
+    assert FakeLLM().classify_intent(ticket).matched_keywords == first.matched_keywords
+
+
+def test_an_unknown_classification_carries_no_evidence() -> None:
+    # Nothing matched, or a tie -- either way there is no evidence *for* the outcome, and
+    # listing both sides' hits would read as evidence for a category that lost.
+    assert FakeLLM().classify_intent(_ticket("Hello", "a general question")).matched_keywords == ()
+    tie = _ticket("Charge or session?", "An invoice query and a kwh query")
+    assert FakeLLM().classify_intent(tie).matched_keywords == ()
 
 
 def test_a_ticket_with_no_keywords_is_unknown() -> None:
     ticket = _ticket("Hello", "I have a general question about the app")
-    assert FakeLLM().classify_intent(ticket) is Intent.UNKNOWN
+    assert FakeLLM().classify_intent(ticket).intent is Intent.UNKNOWN
 
 
 def test_a_keyword_tie_resolves_to_unknown() -> None:
     # Equal distinct hits on both sides is genuine ambiguity; guessing between two
     # templates is the confident-and-wrong behaviour the system exists to avoid (LLM.md).
     ticket = _ticket("Charge or session?", "An invoice query and a kwh query")
-    assert FakeLLM().classify_intent(ticket) is Intent.UNKNOWN
+    assert FakeLLM().classify_intent(ticket).intent is Intent.UNKNOWN
 
 
 def test_classification_is_case_insensitive() -> None:
     ticket = _ticket("INVOICE PROBLEM", "MY PAYMENT DID NOT GO THROUGH")
-    assert FakeLLM().classify_intent(ticket) is Intent.BILLING_QUESTION
+    assert FakeLLM().classify_intent(ticket).intent is Intent.BILLING_QUESTION
 
 
 def test_score_counts_distinct_keywords_not_total_occurrences() -> None:
     # "invoice" x3 is one distinct billing hit; "session" + "station" is two charging
     # hits -- so distinct scoring picks charging, total scoring would pick billing.
     ticket = _ticket("invoice invoice invoice", "a session at a station")
-    assert FakeLLM().classify_intent(ticket) is Intent.CHARGING_SESSION_PROBLEM
+    assert FakeLLM().classify_intent(ticket).intent is Intent.CHARGING_SESSION_PROBLEM
 
 
 def test_the_higher_distinct_count_wins() -> None:
     ticket = _ticket("invoice and payment", "one charging note")
-    assert FakeLLM().classify_intent(ticket) is Intent.BILLING_QUESTION
+    assert FakeLLM().classify_intent(ticket).intent is Intent.BILLING_QUESTION
 
 
 def test_both_subject_and_body_are_searched() -> None:
     fake = FakeLLM()
     assert (
-        fake.classify_intent(_ticket("Help please", "my invoice and payment are wrong"))
+        fake.classify_intent(_ticket("Help please", "my invoice and payment are wrong")).intent
         is Intent.BILLING_QUESTION
     )
     assert (
-        fake.classify_intent(_ticket("charging session issue", "please advise"))
+        fake.classify_intent(_ticket("charging session issue", "please advise")).intent
         is Intent.CHARGING_SESSION_PROBLEM
     )
 
