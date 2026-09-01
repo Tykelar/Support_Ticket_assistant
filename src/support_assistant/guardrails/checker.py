@@ -23,7 +23,7 @@ out of `grounding.py` is what stops that becoming an import cycle. `Violation` s
 import re
 from collections.abc import Collection
 from decimal import Decimal, InvalidOperation
-from typing import NamedTuple, Protocol, runtime_checkable
+from typing import NamedTuple, Protocol
 
 from support_assistant.guardrails.factset import FactSet
 from support_assistant.guardrails.grounding import Violation
@@ -32,20 +32,22 @@ _UNSOURCED = "not present in FactSet or TEMPLATE_SAFE_LITERALS"
 
 _IDENTIFIER = re.compile(r"\b(?:inv|sess|u)_\w+\b")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
-_STATUS = re.compile(r"\b(?:paid|pending|failed|completed|interrupted)\b")
+_STATUS = re.compile(r"\b(?:paid|pending|failed|completed|interrupted)\b", re.IGNORECASE)
+"""Case-insensitive so a capitalised status word is still *found*; the comparison in
+`verify` folds case, and the literal is recorded with the spelling the reply used."""
 
 
 class Literal(NamedTuple):
     """One factual token found in a reply, and how it was extracted."""
 
     text: str
-    """Exactly as it appeared (status words are lower-cased -- the closed vocabulary is)."""
+    """Exactly as it appeared in the reply, spelling and case included -- `Violation`
+    carries this straight into the trace, which has to show what was actually written."""
 
     kind: str
     """`number`, `identifier`, or `status`."""
 
 
-@runtime_checkable
 class Template(Protocol):
     """The slice of an `llm.templates.Template` the checker needs: the static literals a
     template's own prose is allowed to contain. Passed in by the orchestrator so
@@ -73,7 +75,7 @@ class GroundingChecker:
         identifiers = [Literal(match, "identifier") for match in _IDENTIFIER.findall(reply)]
         masked = _IDENTIFIER.sub(" ", reply)
         numbers = [Literal(match, "number") for match in _NUMBER.findall(masked)]
-        statuses = [Literal(match, "status") for match in _STATUS.findall(masked.lower())]
+        statuses = [Literal(match, "status") for match in _STATUS.findall(masked)]
         return identifiers + numbers + statuses
 
     @staticmethod
@@ -85,7 +87,8 @@ class GroundingChecker:
 
         allowed_numbers = facts.allowed_numbers() | safe_numbers
         allowed_identifiers = facts.allowed_identifiers() | safe
-        allowed_statuses = facts.allowed_statuses() | safe
+        # Folded, because the status comparison below folds the literal's case too.
+        allowed_statuses = facts.allowed_statuses() | {text.lower() for text in safe}
 
         violations: list[Violation] = []
         for literal in GroundingChecker.extract(reply):
@@ -95,7 +98,9 @@ class GroundingChecker:
             elif literal.kind == "identifier":
                 grounded = literal.text in allowed_identifiers
             else:
-                grounded = literal.text in allowed_statuses
+                # The status vocabulary is lower-case; the reply's casing is not the
+                # checker's business, only its sourcing.
+                grounded = literal.text.lower() in allowed_statuses
 
             if not grounded:
                 violations.append(
