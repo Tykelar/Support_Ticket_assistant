@@ -52,7 +52,7 @@ one, so every uncertainty resolves to a human handoff (ADR 0005).
     |    facts = FactSet.from_observations(history)                 |  |    |
     |    template = spec_for(draft.template)              [ADR 0004]|  |    |
     |    reply = template.render(facts)                             |  |    |
-    |    violations = GroundingChecker.verify(reply, facts, template)  |    |
+    |    checked = GroundingChecker.verify(reply, facts, template)  |  |    |
     |      |- none --> [OK] status = replied, reply persisted       |  |    |
     |      '- any  -------------------------------------------------+  |    |
     +-----------------------------------------------------------------v----+

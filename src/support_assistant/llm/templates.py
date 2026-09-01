@@ -1,8 +1,9 @@
-"""The five reply bodies, `render()`, and each template's `TEMPLATE_SAFE_LITERALS`.
+"""The five reply bodies, `spec_for()`, and each template's `TEMPLATE_SAFE_LITERALS`.
 
 A `Reply` from the model names a `ReplyTemplate` only (LLM.md). The orchestrator projects
-a `FactSet` from the history and calls `render(template, facts)`; every value in the
-finished text comes from that `FactSet` -- grounding layer 1
+a `FactSet` from the history, resolves the spec with `spec_for(template)` and calls
+`spec.render(facts)`; every value in the finished text comes from that `FactSet` --
+grounding layer 1
 ([ADR 0004](../../../docs/adr/0004-two-layer-grounding-enforcement.md)).
 
 `TEMPLATE_SAFE_LITERALS` is the small, per-template allowlist for numbers that live in a
@@ -42,27 +43,29 @@ class Template:
     def render(self, facts: FactSet) -> str:
         """This template's prose, every field filled from `facts`.
 
-        `render()` below is this method behind a `ReplyTemplate` lookup. It is a method as
-        well as a function so the doctored-template test can render a `Template` that is
-        deliberately wrong through the *same* code path a real one takes, without reaching
-        into the private registry (TESTS.md, "the one that guards the unforgivable bug").
+        A method on the spec rather than a lookup function taking a `ReplyTemplate`, so
+        the doctored-template test renders a `Template` that is deliberately wrong through
+        the *same* code path a real one takes, without reaching into the private registry
+        (TESTS.md, "the one that guards the unforgivable bug").
+
+        Raises `ValueError` if `facts` cannot fill the template -- no user name, or no
+        invoice or session of the kind the template speaks about. `FakeLLM` cannot ask for
+        that, since it picks the template from these very records; a real model names any
+        of the five, and failing with the missing fact named beats a bare `StopIteration`
+        in the trace.
         """
         return self.body.format(**self.context(facts))
 
 
-def render(template: ReplyTemplate, facts: FactSet) -> str:
-    """The reply text for `template`, every field filled from `facts`.
-
-    Raises `ValueError` if `facts` cannot fill the template -- no user name, or no invoice
-    or session of the kind the template speaks about. `FakeLLM` cannot ask for that, since
-    it picks the template from these very records; a real model names any of the five, and
-    failing with the missing fact named beats a bare `StopIteration` in the trace.
-    """
-    return _TEMPLATES[template].render(facts)
-
-
 def spec_for(template: ReplyTemplate) -> Template:
-    """The `Template` for a `ReplyTemplate`, for the grounding check's `template` argument."""
+    """The `Template` for a `ReplyTemplate`: the one thing a caller needs, because the
+    same spec has to both render and be checked (ADR 0004).
+
+    There is deliberately no `render(template, facts)` shortcut beside this. It would be a
+    second way in that no caller can actually use -- verifying against a spec other than
+    the one that rendered would check a reply's literals against the wrong safe list, so
+    the orchestrator must hold the spec either way (LLM.md).
+    """
     return _TEMPLATES[template]
 
 

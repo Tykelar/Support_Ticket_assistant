@@ -192,8 +192,8 @@ class Classification(BaseModel):
 #
 # The discriminator field is named `decision`, and only `ToolCall` carries a `tool`, so
 # the orchestrator can unpack a step for the trace with
-# `trace.llm_decision(i, step.decision, tool=getattr(step, "tool", None))` and the
-# `LLMDecision` model's own validator stays satisfied (tool named iff `tool_call`).
+# `tool = step.tool if isinstance(step, ToolCall) else None` and the `LLMDecision` model's
+# own validator stays satisfied (tool named iff `tool_call`).
 
 
 class ToolCall(BaseModel):

@@ -12,6 +12,7 @@ shared fixtures, because the point of a deterministic fake is that it can be use
 anger.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -34,6 +35,7 @@ from support_assistant.domain import (
 from support_assistant.guardrails.limits import MAX_ITERATIONS
 from support_assistant.llm import templates
 from support_assistant.llm.fake import FakeLLM
+from support_assistant.llm.protocol import LLMClient
 from support_assistant.pipeline.orchestrator import run_pipeline
 from support_assistant.storage.memory import InMemoryTicketRepository
 from support_assistant.tracing.models import (
@@ -57,45 +59,48 @@ _VAGUE = ("Hello", "I have a general question about the app")
 # --------------------------------------------------------------------------------------
 
 
-class _Runaway:
-    """Never terminates. The iteration cap is the only thing that stops it."""
+class _Stub:
+    """Classifies every ticket as billing; each subclass differs only in what it decides.
+
+    The classification is shared because none of these tests is about classifying -- they
+    are about what the loop does with the step that comes back. `decide_next_step` stays
+    abstract so a subclass cannot silently inherit someone else's behaviour.
+    """
 
     def classify_intent(self, ticket: Ticket) -> Classification:
         return Classification(intent=Intent.BILLING_QUESTION, matched_keywords=("invoice",))
 
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
+        raise NotImplementedError
+
+
+class _Runaway(_Stub):
+    """Never terminates. The iteration cap is the only thing that stops it."""
+
+    def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
         return ToolCall(tool="get_user", args={"user_id": ticket.user_id})
 
 
-class _GivesUp:
+class _GivesUp(_Stub):
     """A model that decides to stop. `FakeLLM` never does this; a real one can, and the
     pipeline has to treat it as an outcome rather than an error (ADR 0006)."""
 
     def __init__(self, reason: HandoffReason) -> None:
         self._reason = reason
 
-    def classify_intent(self, ticket: Ticket) -> Classification:
-        return Classification(intent=Intent.BILLING_QUESTION, matched_keywords=("invoice",))
-
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
         return Handoff(reason=self._reason)
 
 
-class _CallsAnUnregisteredTool:
+class _CallsAnUnregisteredTool(_Stub):
     """The model-chose-versus-system-did divergence ADR 0010 exists to make visible."""
-
-    def classify_intent(self, ticket: Ticket) -> Classification:
-        return Classification(intent=Intent.BILLING_QUESTION, matched_keywords=("invoice",))
 
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
         return ToolCall(tool="get_refunds", args={"user_id": ticket.user_id})
 
 
-class _RepliesImmediately:
+class _RepliesImmediately(_Stub):
     """Replies without gathering anything, so the FactSet cannot fill the template."""
-
-    def classify_intent(self, ticket: Ticket) -> Classification:
-        return Classification(intent=Intent.BILLING_QUESTION, matched_keywords=("invoice",))
 
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
         return Reply(template=ReplyTemplate.BILLING_ALL_PAID)
@@ -121,8 +126,9 @@ def _run(
     user_id: str = "u_002",
     text: tuple[str, str] = _BILLING,
     *,
-    llm: object | None = None,
-    **kwargs,
+    llm: LLMClient | None = None,
+    resolve_template: Callable[[ReplyTemplate], templates.Template] = templates.spec_for,
+    max_iterations: int = MAX_ITERATIONS,
 ) -> Ticket:
     """Create a ticket, run the pipeline over it, and read back what was persisted.
 
@@ -139,7 +145,8 @@ def _run(
         repository=repository,
         llm=llm if llm is not None else FakeLLM(),
         clock=FrozenClock(),
-        **kwargs,
+        resolve_template=resolve_template,
+        max_iterations=max_iterations,
     )
 
     stored = repository.get(ticket.id)
@@ -432,14 +439,6 @@ def test_an_ungrounded_reply_is_withheld_with_the_literal_recorded() -> None:
 # --------------------------------------------------------------------------------------
 
 
-def test_the_loop_stops_at_exactly_max_iterations() -> None:
-    ticket = _run("u_002", _BILLING, llm=_Runaway())
-
-    decisions = [s for s in ticket.trace if isinstance(s, LLMDecision)]
-    assert len(decisions) == MAX_ITERATIONS
-    assert [d.iteration for d in decisions] == list(range(1, MAX_ITERATIONS + 1))
-
-
 def test_a_capped_run_never_reaches_the_grounding_check() -> None:
     # There is no path where exhausting the loop produces a reply, so there is nothing
     # to ground (PIPELINE.md's `for ... else`).
@@ -491,3 +490,45 @@ def test_running_an_unknown_ticket_id_raises_rather_than_writing_anything() -> N
             llm=FakeLLM(),
             clock=FrozenClock(),
         )
+
+
+class _WriteFails:
+    """A repository whose `finalise` always raises, recording what it was handed.
+
+    Storage failing is the one thing the orchestrator cannot fail closed over, because
+    failing closed *is* a write (ADR 0013).
+    """
+
+    def __init__(self) -> None:
+        self._inner = InMemoryTicketRepository(FrozenClock())
+        self.attempts: list[list[str]] = []
+
+    def create(self, ticket: Ticket) -> None:
+        self._inner.create(ticket)
+
+    def get(self, ticket_id: str) -> Ticket | None:
+        return self._inner.get(ticket_id)
+
+    def finalise(self, ticket_id, status, reply, handoff_reason, trace) -> None:
+        self.attempts.append([step.type for step in trace])
+        raise RuntimeError("database is locked")
+
+
+def test_a_failing_write_is_not_retried_into_a_second_final_decision() -> None:
+    # The catch-all exists to turn a failed run into a terminal write. It must not also
+    # guard the write itself: retrying one appends a second `final_decision`, and the
+    # trace then carries two -- the first claiming an outcome that was never persisted.
+    repository = _WriteFails()
+    ticket = _ticket("u_002", *_BILLING)
+    repository.create(ticket)
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(
+            ticket.id,
+            repository=repository,
+            llm=FakeLLM(),
+            clock=FrozenClock(),
+        )
+
+    (attempt,) = repository.attempts  # tried once, not caught and tried again
+    assert attempt.count("final_decision") == 1

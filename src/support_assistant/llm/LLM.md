@@ -132,14 +132,17 @@ Note that the fake terminates in at most three iterations, comfortably inside th
 ```python
 spec_for(template: ReplyTemplate) -> Template   # the spec: prose, fields, safe literals
 Template.render(facts: FactSet) -> str          # the reply text
-render(template: ReplyTemplate, facts) -> str   # the lookup in front of it
 ```
 
 The orchestrator resolves the spec once, renders from it, and hands the rendered text, the
 same `FactSet`, and that same spec to `GroundingChecker.verify` — rendering and checking
 against different templates would compare a reply against the wrong safe list.
 
-`render` raises `ValueError`, naming the fact it wanted, when the `FactSet` cannot fill the
+There is deliberately no `render(template, facts)` shortcut beside `spec_for`. Because the
+same spec has to both render and be checked, every caller needs the spec anyway, and a
+second way in would be one no caller could actually use.
+
+`Template.render` raises `ValueError`, naming the fact it wanted, when the `FactSet` cannot fill the
 template — no user name, or no invoice or session of the kind the template speaks about.
 `FakeLLM` cannot ask for that, since it picks the template from these very records; a real
 model can name any of the five, and the orchestrator's catch-all turns the refusal into a
@@ -199,7 +202,7 @@ llm/
   protocol.py    LLMClient (the ToolCall | Reply | Handoff union and Observation it
                  names are in domain.py -- see "The protocol")
   fake.py        FakeLLM: keyword rules + step state machine
-  templates.py   the 5 reply bodies, render(), spec_for(), TEMPLATE_SAFE_LITERALS
+  templates.py   the 5 reply bodies, spec_for(), Template.render(), TEMPLATE_SAFE_LITERALS
   ollama.py      OllamaLLM (optional, off by default)                    (phase 11)
   LLM.md         this file
 ```

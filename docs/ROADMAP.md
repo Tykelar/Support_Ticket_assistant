@@ -238,7 +238,7 @@ mutating method on the recorder, and the trade is worth making deliberately rath
 passing. It is also only a partial win: `count` and `statuses` still describe every row.
 
 **How.** After a passing grounding check the orchestrator already holds the identifiers,
-as the `IDENTIFIER` literals from `GroundingChecker.extract`. Either add a narrowing pass
+as the `IDENTIFIER` literals in the `GroundingResult` that `verify` returned. Either add a narrowing pass
 on the recorder before `finalise`, or build `tool_result` steps at persist time rather
 than in the loop — the second is cleaner but changes when a step gets its timestamp, which
 the ordering contract depends on.

@@ -93,7 +93,7 @@ def test_ungrounded_literal_is_caught() -> None:
     doctored = _doctored()
 
     reply = doctored.render(facts)
-    violations = GroundingChecker.verify(reply, facts, doctored)
+    violations = GroundingChecker.verify(reply, facts, doctored).violations
 
     assert "99.00" in reply  # the doctored amount really did reach the reply
     assert len(violations) == 1
@@ -108,7 +108,7 @@ def test_the_honest_version_of_that_template_is_clean() -> None:
     # on the injected amount and not on something incidental in the prose.
     facts = _facts("u_002", "get_invoices")
     honest = templates.spec_for(ReplyTemplate.BILLING_FAILED)
-    assert GroundingChecker.verify(honest.render(facts), facts, honest) == []
+    assert GroundingChecker.verify(honest.render(facts), facts, honest).violations == []
 
 
 # --------------------------------------------------------------------------------------
@@ -187,7 +187,7 @@ def test_the_honest_template_reaches_the_customer_through_the_same_path() -> Non
 def test_an_amount_is_grounded_however_it_is_written(written: str) -> None:
     facts = _facts("u_002", "get_invoices")
     reply = f"Your invoice inv_204 came to {written} EUR."
-    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS).violations == []
 
 
 # --------------------------------------------------------------------------------------
@@ -199,9 +199,9 @@ def test_a_static_number_passes_only_when_the_template_declares_it() -> None:
     facts = _facts("u_003", "get_invoices")  # 2 invoices, so "3" is not a count either
     reply = "Pending invoices are collected within 3 business days."
 
-    assert GroundingChecker.verify(reply, facts, _Template("3")) == []
+    assert GroundingChecker.verify(reply, facts, _Template("3")).violations == []
 
-    (bad,) = GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS)
+    (bad,) = GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS).violations
     assert bad.literal == "3"
     assert bad.literal_class == "number"
 
@@ -215,7 +215,7 @@ def test_an_unknown_identifier_is_rejected() -> None:
     facts = _facts("u_002", "get_invoices")
     (bad,) = GroundingChecker.verify(
         "Please see invoice inv_999 for details.", facts, _NO_SAFE_LITERALS
-    )
+    ).violations
     assert bad.literal == "inv_999"
     assert bad.literal_class == "identifier"
 
@@ -225,25 +225,26 @@ def test_identifier_digits_are_not_re_read_as_ungrounded_numbers() -> None:
     # "204" is inside inv_204 and is not an amount; masking the id before the number
     # scan is what keeps this clean.
     reply = "Invoice inv_204 for 42.10 EUR."
-    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS).violations == []
 
 
 def test_a_status_word_must_be_one_the_factset_actually_holds() -> None:
     facts = _facts("u_003", "get_invoices")  # statuses: pending, paid -- never failed
     (bad,) = GroundingChecker.verify(
         "Your payment failed.", facts, _NO_SAFE_LITERALS
-    )
+    ).violations
     assert bad.literal == "failed"
     assert bad.literal_class == "status"
 
-    assert GroundingChecker.verify("Your invoice is pending.", facts, _NO_SAFE_LITERALS) == []
+    checked = GroundingChecker.verify("Your invoice is pending.", facts, _NO_SAFE_LITERALS)
+    assert checked.violations == []
 
 
 def test_a_violation_records_the_literal_as_it_was_written() -> None:
     # Violation.literal is "the offending text exactly as it appeared" -- the trace is the
     # audit record, so it must show what the reply said, not a normalised form of it.
     facts = _facts("u_001", "get_invoices")  # every invoice paid -- "failed" is not a fact
-    (bad,) = GroundingChecker.verify("Your payment Failed.", facts, _NO_SAFE_LITERALS)
+    (bad,) = GroundingChecker.verify("Your payment Failed.", facts, _NO_SAFE_LITERALS).violations
     assert bad.literal == "Failed"
     assert bad.literal_class == "status"
 
@@ -252,7 +253,8 @@ def test_a_grounded_status_matches_whatever_its_case() -> None:
     # Case-insensitive matching, not case-sensitive rejection: a capitalised status word
     # that *is* in the FactSet is grounded.
     facts = _facts("u_001", "get_invoices")
-    assert GroundingChecker.verify("Your invoice is Paid.", facts, _NO_SAFE_LITERALS) == []
+    checked = GroundingChecker.verify("Your invoice is Paid.", facts, _NO_SAFE_LITERALS)
+    assert checked.violations == []
 
 
 # --------------------------------------------------------------------------------------
@@ -275,7 +277,7 @@ def test_verify_checks_exactly_the_extracted_literals() -> None:
     facts = _facts("u_002", "get_invoices")
     reply = "Invoice inv_204 for 42.10 EUR has a failed payment."
     # every literal is grounded, so a clean reply yields no violations but did check some
-    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS).violations == []
     assert len(GroundingChecker.extract(reply, facts)) >= 3
 
 
@@ -307,7 +309,7 @@ def test_a_station_name_containing_a_digit_is_not_read_as_an_amount(station: str
     # a fact, which is the one direction "fail closed" is not supposed to cover.
     facts = _session_facts(station)
     reply = f"Your session at {station} delivered 4.00 kWh, charged at 1.60."
-    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS).violations == []
 
 
 @pytest.mark.parametrize("station", ["Completed Street", "Failed Bridge Park"])
@@ -316,7 +318,7 @@ def test_a_station_name_colliding_with_the_status_vocabulary_is_not_a_status(
 ) -> None:
     facts = _session_facts(station)
     reply = f"Your session at {station} is completed."
-    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS) == []
+    assert GroundingChecker.verify(reply, facts, _NO_SAFE_LITERALS).violations == []
 
 
 def test_an_entity_the_factset_does_not_hold_is_still_scanned() -> None:
@@ -325,7 +327,7 @@ def test_an_entity_the_factset_does_not_hold_is_still_scanned() -> None:
     facts = _session_facts("Porto Norte 2")
     (bad,) = GroundingChecker.verify(
         "Your session at Berlin Mitte 9 completed.", facts, _NO_SAFE_LITERALS
-    )
+    ).violations
     assert bad.literal == "9"
     assert bad.literal_class == "number"
 
@@ -336,7 +338,7 @@ def test_masking_an_entity_does_not_hide_an_identifier_inside_it() -> None:
     facts = _session_facts("Porto Norte 2")
     (bad,) = GroundingChecker.verify(
         "Your session at Porto Norte 2 is on invoice inv_999.", facts, _NO_SAFE_LITERALS
-    )
+    ).violations
     assert bad.literal == "inv_999"
 
 
@@ -349,14 +351,14 @@ def test_a_safe_literal_does_not_whitelist_a_status_word() -> None:
     # LLM.md: "Any *number* a template states in its own static prose". A template must
     # not be able to switch off status grounding by naming a word in its safe list.
     facts = _facts("u_001", "get_invoices")  # every invoice paid -- "failed" is not a fact
-    (bad,) = GroundingChecker.verify("Your payment failed.", facts, _Template("failed"))
+    (bad,) = GroundingChecker.verify("Your payment failed.", facts, _Template("failed")).violations
     assert bad.literal == "failed"
     assert bad.literal_class == "status"
 
 
 def test_a_safe_literal_does_not_whitelist_an_identifier() -> None:
     facts = _facts("u_001", "get_invoices")
-    (bad,) = GroundingChecker.verify("See invoice inv_999.", facts, _Template("inv_999"))
+    (bad,) = GroundingChecker.verify("See invoice inv_999.", facts, _Template("inv_999")).violations
     assert bad.literal == "inv_999"
     assert bad.literal_class == "identifier"
 

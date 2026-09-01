@@ -143,8 +143,9 @@ class GroundingCheck(TraceStepBase):
 class FinalDecision(TraceStepBase):
     """Emitted exactly once, always last.
 
-    Written only by `finish_replied` and `finish_handoff`, so a terminal ticket without
-    one is structurally impossible rather than merely unlikely (PIPELINE.md).
+    Written at the orchestrator's single write site, below the catch-all that guards the
+    run -- so a terminal ticket without one, or with two, is structurally impossible
+    rather than merely unlikely (ADR 0013, PIPELINE.md).
     """
 
     type: Literal["final_decision"] = "final_decision"

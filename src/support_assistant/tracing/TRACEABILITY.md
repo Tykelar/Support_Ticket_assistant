@@ -30,10 +30,13 @@ the check a constant clock would silently make impossible.
 | `grounding_check` | once, if a reply was drafted | `passed`, `literals_checked`, `violations` |
 | `final_decision` | exactly once, always last | `outcome`, `reason`, `detail` |
 
-**`final_decision` is always present in a terminal state.** It is written by
-`finish_replied` and `finish_handoff`, the only two functions that can write one — so a
-terminal ticket without a final decision step is structurally impossible, not merely
-unlikely ([PIPELINE.md](../pipeline/PIPELINE.md)).
+**`final_decision` is always present in a terminal state, and there is exactly one.**
+The orchestrator's `_decide` returns an outcome and is never handed the repository;
+`run_pipeline` records this step and persists it in the single `finalise` call below the
+catch-all. A terminal ticket without a final decision — or with two — is therefore
+structurally impossible rather than merely unlikely
+([ADR 0013](../../../docs/adr/0013-one-write-outside-the-catch-all.md),
+[PIPELINE.md](../pipeline/PIPELINE.md)).
 
 `llm_decision` is recorded separately from `tool_call` on purpose. One says what the model
 *chose*; the other says what the system *did*. Collapsing them would hide the case where
@@ -173,11 +176,11 @@ Given that a stranded ticket needs a reaper either way
 whether the list is empty but `literals_checked` does not, and it is what distinguishes a
 check that passed from one that had nothing to look at: `passed: true, literals_checked: 0`
 is a reply the checker never really inspected, and a bare `passed: true` would hide it.
-The orchestrator supplies the count as `len(GroundingChecker.extract(reply, facts))` —
-the same extraction `verify` runs — so it is exactly the number of literals that were
-checked.
-That is why `extract` takes the `FactSet` as well as the reply: it masks sourced spans
-before scanning, and a count taken without them would not describe the same check.
+`verify` returns the literals it checked alongside the violations, and the orchestrator
+records `len(checked.literals)` — so the count comes from the pass that did the checking,
+rather than from a second reading that is only guaranteed to agree by nothing at all.
+That is also why `extract` takes the `FactSet` as well as the reply: it masks sourced
+spans before scanning, and a count taken without them would not describe the same check.
 
 The recorder is injected, not global, so tests assert on the recorded steps directly.
 

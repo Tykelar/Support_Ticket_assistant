@@ -398,15 +398,18 @@ def test_reply_template_members_match_llm_md() -> None:
 
 def test_only_a_tool_call_carries_a_tool_name() -> None:
     # This is the exact contract PIPELINE.md relies on:
-    #   trace.llm_decision(i, step.decision, tool=getattr(step, "tool", None))
+    #   tool = step.tool if isinstance(step, ToolCall) else None
     # and LLMDecision's validator (tool named iff decision == "tool_call").
-    tool_call = ToolCall(tool="get_user", args={"user_id": "u_002"})
-    reply = Reply(template=ReplyTemplate.BILLING_ALL_PAID)
-    handoff = Handoff(reason=HandoffReason.UNSUPPORTED_INTENT)
+    steps = [
+        ToolCall(tool="get_user", args={"user_id": "u_002"}),
+        Reply(template=ReplyTemplate.BILLING_ALL_PAID),
+        Handoff(reason=HandoffReason.UNSUPPORTED_INTENT),
+    ]
 
-    assert (tool_call.decision, getattr(tool_call, "tool", None)) == ("tool_call", "get_user")
-    assert (reply.decision, getattr(reply, "tool", None)) == ("reply", None)
-    assert (handoff.decision, getattr(handoff, "tool", None)) == ("handoff", None)
+    narrowed = [(s.decision, s.tool if isinstance(s, ToolCall) else None) for s in steps]
+
+    assert narrowed == [("tool_call", "get_user"), ("reply", None), ("handoff", None)]
+    assert not any(hasattr(s, "tool") for s in steps if not isinstance(s, ToolCall))
 
 
 def test_the_step_union_discriminates_on_decision() -> None:

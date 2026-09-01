@@ -325,7 +325,7 @@ def test_every_tool_the_fake_calls_is_a_registered_tool() -> None:
 
 
 def test_a_decision_feeds_trace_llm_decision_via_its_own_attributes() -> None:
-    # PIPELINE.md: trace.llm_decision(i, step.decision, tool=getattr(step, "tool", None)).
+    # PIPELINE.md: tool = step.tool if isinstance(step, ToolCall) else None.
     fake = FakeLLM()
     ticket = _ticket("invoice", "payment", user_id="u_002")
     tool_step = fake.decide_next_step(ticket, [])
@@ -333,7 +333,7 @@ def test_a_decision_feeds_trace_llm_decision_via_its_own_attributes() -> None:
 
     rec = TraceRecorder(FrozenClock())
     for i, step in enumerate((tool_step, reply_step), start=1):
-        rec.llm_decision(i, step.decision, tool=getattr(step, "tool", None))
+        rec.llm_decision(i, step.decision, tool=step.tool if isinstance(step, ToolCall) else None)
 
     tool_rec, reply_rec = rec.steps
     assert (tool_rec.decision, tool_rec.tool) == ("tool_call", "get_user")

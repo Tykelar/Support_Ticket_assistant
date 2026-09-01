@@ -6,8 +6,8 @@ it can loop forever, and this is what stands between that and an unbounded run
 (GUARDRAILS.md section 1).
 
 This module owns only the number and its validation. The `for ... else` that *enforces*
-it is the orchestrator's (PIPELINE.md); `pipeline/config.py` imports this value rather
-than redefining it, so there is one source of truth.
+it is the orchestrator's (PIPELINE.md), which imports this value rather than redefining
+it, so there is one source of truth.
 
 Default 5: `FakeLLM` terminates in at most three iterations, so 5 leaves headroom for a
 fourth tool without touching the ceiling, and is low enough that a runaway loop is cheap.

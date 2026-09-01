@@ -11,6 +11,11 @@ declared static numbers). Anything unaccounted for is a `Violation`; the orchest
 turns a non-empty list into a `handed_off` / `UNGROUNDED_REPLY` and records the offending
 literals as evidence (GUARDRAILS.md section 3).
 
+It returns the literals it checked alongside those violations. `literals_checked` in the
+trace has to be the count of what was *really* checked (TRACEABILITY.md), and reporting it
+from the one pass that did the checking is what keeps the two from ever describing
+different readings of the same reply.
+
 What this does **not** catch is stated in GUARDRAILS.md: invented open-vocabulary entities
 and semantic faithfulness. Extraction is numbers, ids and status words only.
 """
@@ -56,6 +61,19 @@ class Literal(NamedTuple):
     kind: LiteralClass
 
 
+class GroundingResult(NamedTuple):
+    """What one `verify` pass found: what it looked at, and what was wrong with it."""
+
+    literals: list[Literal]
+    """Every literal the pass extracted and checked. The orchestrator records
+    `len(literals)` as the trace's `literals_checked`; a future narrowing pass over a
+    trace's `referenced` ids reads the `IDENTIFIER` ones
+    ([roadmap](../../../docs/ROADMAP.md#narrowing-a-traces-referenced-ids))."""
+
+    violations: list[Violation]
+    """One per unsourced literal. Empty means grounded."""
+
+
 class Template(Protocol):
     """The slice of an `llm.templates.Template` the checker needs: the static numbers a
     template's own prose is allowed to contain. Passed in by the orchestrator so
@@ -92,9 +110,10 @@ class GroundingChecker:
         than an ungrounded `1`. Only strings the facts actually hold are masked, so
         nothing unsourced escapes the scan.
 
-        `len(extract(reply, facts))` is the `literals_checked` the trace records, which is
-        why this takes the same `facts` `verify` does -- the count has to be of the
-        literals that were really checked (TRACEABILITY.md).
+        This takes the same `facts` `verify` does because it masks sourced spans before
+        scanning, and a reading taken without them would not describe the same check. The
+        `literals_checked` the trace records is the length of the list `verify` returns,
+        which is this one (TRACEABILITY.md).
         """
         identifiers = [
             Literal(match, LiteralClass.IDENTIFIER) for match in _IDENTIFIER.findall(reply)
@@ -105,9 +124,14 @@ class GroundingChecker:
         return identifiers + numbers + statuses
 
     @staticmethod
-    def verify(reply: str, facts: FactSet, template: Template) -> list[Violation]:
+    def verify(reply: str, facts: FactSet, template: Template) -> GroundingResult:
         """Check every extracted literal against the facts and the template's safe list.
-        Returns one `Violation` per unsourced literal; an empty list means grounded."""
+
+        Returns the literals it checked and one `Violation` per unsourced one; no
+        violations means grounded. The reply is scanned once -- a caller that wanted the
+        count as well would otherwise run the whole extraction a second time, and the two
+        passes would only be guaranteed to agree by nothing at all.
+        """
         safe_numbers = {
             value
             for text in template.TEMPLATE_SAFE_LITERALS
@@ -120,8 +144,9 @@ class GroundingChecker:
         allowed_identifiers = facts.allowed_identifiers()
         allowed_statuses = facts.allowed_statuses()
 
+        literals = GroundingChecker.extract(reply, facts)
         violations: list[Violation] = []
-        for literal in GroundingChecker.extract(reply, facts):
+        for literal in literals:
             match literal.kind:
                 case LiteralClass.NUMBER:
                     value = _as_decimal(literal.text)
@@ -137,4 +162,4 @@ class GroundingChecker:
                 violations.append(
                     Violation(literal=literal.text, literal_class=literal.kind, reason=_UNSOURCED)
                 )
-        return violations
+        return GroundingResult(literals, violations)

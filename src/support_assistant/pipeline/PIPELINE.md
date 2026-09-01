@@ -20,66 +20,74 @@ def run_pipeline(ticket_id: str) -> None:
     ticket = repo.get(ticket_id)
     trace = TraceRecorder(clock)
 
+    outcome = _decide(ticket, trace, ...)          # no repository: it cannot write
+
+    trace.final_decision(outcome.status, reason=outcome.reason, detail=outcome.detail)
+    repo.finalise(ticket_id, outcome.status, outcome.reply, outcome.reason, trace.steps)
+
+
+def _decide(ticket, trace, ...) -> Outcome:
     try:
         # 1. Classify
         intent = llm.classify_intent(ticket)
         trace.intent_classified(intent, matched_keywords)
         if intent is Intent.UNKNOWN:
-            return finish_handoff(HandoffReason.UNSUPPORTED_INTENT)
+            return handed_off(HandoffReason.UNSUPPORTED_INTENT, detail=...)
 
         # 2. Loop  -- bounded, agentic
         history: list[Observation] = []
         for iteration in range(1, MAX_ITERATIONS + 1):
             step = llm.decide_next_step(ticket, history)
             # tracing/ can't import llm/, so the orchestrator adapts its own step:
-            trace.llm_decision(iteration, step.decision, tool=getattr(step, "tool", None))
+            trace.llm_decision(iteration, step.decision,
+                               tool=step.tool if isinstance(step, ToolCall) else None)
 
             match step:
                 case ToolCall():
                     trace.tool_call(step.tool, step.args)
                     try:
-                        result = registry.run(step.tool, step.args)
+                        result = tools(step.tool, step.args)
                     except Exception as exc:                      # record, then re-raise
                         trace.tool_result(step.tool, error=as_tool_error(exc))
                         raise
                     trace.tool_result(step.tool, summarise(result))
                     history.append(Observation(step, result))
                 case Reply():
-                    draft = step
-                    break
+                    return _ground(step, history, trace, resolve_template)
                 case Handoff():
-                    return finish_handoff(step.reason)
+                    return handed_off(step.reason, detail=...)
         else:
-            return finish_handoff(HandoffReason.ITERATION_CAP_EXCEEDED)
-
-        # 3. Ground and verify
-        facts = FactSet.from_observations(history)
-        template = spec_for(draft.template)   # one spec both renders and is checked
-        reply = template.render(facts)
-        violations = GroundingChecker.verify(reply, facts, template)
-        trace.grounding_check(len(GroundingChecker.extract(reply, facts)), violations)
-        if violations:
-            return finish_handoff(HandoffReason.UNGROUNDED_REPLY, detail=violations)
-
-        return finish_replied(reply)
+            return handed_off(HandoffReason.ITERATION_CAP_EXCEEDED, detail=...)
 
     except UserNotFound as exc:
-        return finish_handoff(HandoffReason.USER_NOT_FOUND, detail=f"{in_flight}: {exc}")
+        return handed_off(HandoffReason.USER_NOT_FOUND, detail=f"{in_flight}: {exc}")
     except NoDataAvailable as exc:
-        return finish_handoff(HandoffReason.DATA_NOT_FOUND, detail=f"{in_flight}: {exc}")
+        return handed_off(HandoffReason.DATA_NOT_FOUND, detail=f"{in_flight}: {exc}")
     except Exception as exc:                      # deliberate catch-all
-        return finish_handoff(HandoffReason.TOOL_ERROR, detail=repr(exc))
+        return handed_off(HandoffReason.TOOL_ERROR, detail=repr(exc))
+
+
+# 3. Ground and verify
+def _ground(draft, history, trace, resolve_template) -> Outcome:
+    facts = FactSet.from_observations(history)
+    template = resolve_template(draft.template)   # one spec both renders and is checked
+    reply = template.render(facts)
+    checked = GroundingChecker.verify(reply, facts, template)
+    trace.grounding_check(len(checked.literals), checked.violations)
+    if checked.violations:
+        return handed_off(HandoffReason.UNGROUNDED_REPLY, detail=checked.violations)
+    return replied(reply)
 ```
 
 Illustrative, not the final source — but the control flow and the ordering of the
 guardrails are the contract. `orchestrator.py` follows it, with three details the sketch
 elides: `in_flight` is the tool name the loop last dispatched, so a typed failure's detail
 names the incident and not just the category ([GUARDRAILS.md](../guardrails/GUARDRAILS.md)
-asks every handoff for both); `extract` takes the `FactSet` because it masks sourced spans
-before scanning, and `literals_checked` has to count what was really checked; and
-`finish_handoff` takes `detail` as a **required** argument rather than an optional one,
-since a default of `None` is how "every handoff carries its detail" erodes one call site
-at a time.
+asks every handoff for both); `verify` returns the literals it checked alongside the
+violations, so `literals_checked` is the count from the pass that did the checking rather
+than a second reading of the same reply; and `handed_off` takes `detail` as a **required**
+argument rather than an optional one, since a default of `None` is how "every handoff
+carries its detail" erodes one call site at a time.
 
 ---
 
@@ -97,13 +105,21 @@ no owner and no alarm. It is the last clause, after the typed handlers, so speci
 failures still get specific reasons. The exception is recorded in the trace and the
 structured log; only the stack trace is withheld from the API.
 
-**3. Every exit converges on two functions.** `finish_replied` and `finish_handoff` are
-the only writers of a terminal state. Each writes the `final_decision` trace step and
-persists it with the trace in one `finalise` call. There is no way to reach a terminal
-state without being recorded — which is what makes requirement 5 hold by construction
-rather than by discipline. The outcome metric these will also emit lands with
+**3. Deciding and writing are separate, and only one of them touches storage.**
+`_decide` returns an `Outcome`; it is never handed the repository, so it *cannot* write a
+terminal state. `run_pipeline` records the `final_decision` and persists it with the trace
+in one `finalise` call, once, below the catch-all — and with no branch at the write, since
+`Outcome` already carries the status/reply/reason pairing. A terminal ticket therefore
+carries exactly one `final_decision` by construction rather than by six call sites each
+remembering to write one ([ADR 0013](../../../docs/adr/0013-one-write-outside-the-catch-all.md)).
+The outcome metric this will also emit lands with
 [`observability/`](../observability/OBSERVABILITY.md) in a later phase; the trace step and
 the persisted state are here now.
+
+A failing `finalise` propagates rather than being retried. It is the one failure that
+cannot be failed closed over, because failing closed is itself a write — catching it to
+write again only appends a second `final_decision` for an outcome that was never
+persisted.
 
 **4. Grounding runs after rendering, unconditionally.** Not "if the LLM is real". The
 check is on the output, so it costs the same either way and it cannot be forgotten during
@@ -185,8 +201,7 @@ a support agent reads.
 ```
 pipeline/
   __init__.py
-  orchestrator.py   run_pipeline, finish_replied, finish_handoff
-  config.py         MAX_ITERATIONS and other env-backed settings
+  orchestrator.py   run_pipeline, _decide, _ground, and the two Outcome constructors
   PIPELINE.md       this file
 ```
 

@@ -106,7 +106,7 @@ Runs on the **rendered reply**, unconditionally, regardless of which client prod
 
 ```python
 GroundingChecker.extract(reply: str, facts: FactSet) -> list[Literal]
-GroundingChecker.verify(reply: str, facts: FactSet, template: Template) -> list[Violation]
+GroundingChecker.verify(reply: str, facts: FactSet, template: Template) -> GroundingResult
 ```
 
 `extract` takes the facts because two kinds of span are masked out before scanning, and
@@ -114,10 +114,12 @@ GroundingChecker.verify(reply: str, facts: FactSet, template: Template) -> list[
 two cannot take different views of the reply (TRACEABILITY.md).
 
 `extract` pulls every factual token out of the finished text; `verify` checks each
-against the `FactSet` and `template.TEMPLATE_SAFE_LITERALS` and returns one `Violation`
-per unsourced one. The orchestrator records `len(extract(reply, facts))` as `literals_checked`
-and hands off on a non-empty `verify` result — the guardrail reports, the orchestrator
-decides.
+against the `FactSet` and `template.TEMPLATE_SAFE_LITERALS`, and returns both the
+`literals` it checked and one `Violation` per unsourced one. The orchestrator records
+`len(checked.literals)` as `literals_checked` and hands off on non-empty
+`checked.violations` — the guardrail reports, the orchestrator decides. Returning both
+from one call is what keeps the reply from being scanned twice by two passes that are
+only guaranteed to agree by nothing at all.
 
 | Class | Extraction | Normalisation |
 |---|---|---|
@@ -196,7 +198,7 @@ guardrails/
   __init__.py
   factset.py       FactSet + InvoiceFact / SessionFact, projection from observations,
                    allowed_literals() and the per-class allowed_* helpers
-  grounding.py     GroundingChecker, Literal, the extraction rules
+  grounding.py     GroundingChecker, Literal, GroundingResult, the extraction rules
   limits.py        MAX_ITERATIONS + max_iterations()
   GUARDRAILS.md    this file
 ```
