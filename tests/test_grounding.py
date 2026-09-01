@@ -11,8 +11,10 @@ pipeline phase; here the checker is exercised directly.
 import pytest
 
 from support_assistant.domain import Observation, ToolCall
+from support_assistant.enums import ReplyTemplate
 from support_assistant.guardrails.checker import GroundingChecker
 from support_assistant.guardrails.factset import FactSet
+from support_assistant.llm import templates
 from support_assistant.tools import registry
 
 
@@ -44,18 +46,35 @@ _NO_SAFE_LITERALS = _Template()
 
 
 def test_ungrounded_literal_is_caught() -> None:
-    facts = _facts("u_002", "get_invoices")  # amounts 42.10, 38.90, 31.20
-    doctored_reply = (
-        "Hi Ben Carter, invoice inv_204 for 99.00 EUR has a failed payment."
+    # A real Template -- the production dataclass, the real field selection, the real
+    # safe-literal set -- with one amount doctored into its prose. Rendered through the
+    # same code path render() uses, so the reply under test is a genuinely rendered one.
+    facts = _facts("u_002", "get_invoices")  # amounts 42.10, 38.90, 31.20 -- never 99.00
+    honest = templates.spec_for(ReplyTemplate.BILLING_FAILED)
+    doctored = templates.Template(
+        name=honest.name,
+        body="Hi {name}, invoice {invoice_id} for 99.00 {currency} has a failed payment.",
+        context=honest.context,
+        TEMPLATE_SAFE_LITERALS=honest.TEMPLATE_SAFE_LITERALS,
     )
 
-    violations = GroundingChecker.verify(doctored_reply, facts, _NO_SAFE_LITERALS)
+    reply = doctored.render(facts)
+    violations = GroundingChecker.verify(reply, facts, doctored)
 
+    assert "99.00" in reply  # the doctored amount really did reach the reply
     assert len(violations) == 1
     (bad,) = violations
     assert bad.literal == "99.00"
     assert bad.literal_class == "number"
     assert "FactSet" in bad.reason
+
+
+def test_the_honest_version_of_that_template_is_clean() -> None:
+    # The control: same facts, same template, undoctored -- so the test above is failing
+    # on the injected amount and not on something incidental in the prose.
+    facts = _facts("u_002", "get_invoices")
+    honest = templates.spec_for(ReplyTemplate.BILLING_FAILED)
+    assert GroundingChecker.verify(honest.render(facts), facts, honest) == []
 
 
 # --------------------------------------------------------------------------------------
@@ -117,6 +136,22 @@ def test_a_status_word_must_be_one_the_factset_actually_holds() -> None:
     assert bad.literal_class == "status"
 
     assert GroundingChecker.verify("Your invoice is pending.", facts, _NO_SAFE_LITERALS) == []
+
+
+def test_a_violation_records_the_literal_as_it_was_written() -> None:
+    # Violation.literal is "the offending text exactly as it appeared" -- the trace is the
+    # audit record, so it must show what the reply said, not a normalised form of it.
+    facts = _facts("u_001", "get_invoices")  # every invoice paid -- "failed" is not a fact
+    (bad,) = GroundingChecker.verify("Your payment Failed.", facts, _NO_SAFE_LITERALS)
+    assert bad.literal == "Failed"
+    assert bad.literal_class == "status"
+
+
+def test_a_grounded_status_matches_whatever_its_case() -> None:
+    # Case-insensitive matching, not case-sensitive rejection: a capitalised status word
+    # that *is* in the FactSet is grounded.
+    facts = _facts("u_001", "get_invoices")
+    assert GroundingChecker.verify("Your invoice is Paid.", facts, _NO_SAFE_LITERALS) == []
 
 
 # --------------------------------------------------------------------------------------

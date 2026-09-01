@@ -27,6 +27,7 @@ from support_assistant.domain import (
     ToolCall,
     ToolResult,
     User,
+    format_amount,
     new_ticket_id,
 )
 from support_assistant.guardrails.handoff import HandoffReason
@@ -101,6 +102,25 @@ def test_ticket_ids_do_not_collide() -> None:
     # Not a serious test of the entropy -- a guard against a sequence or a fixed prefix
     # sneaking in, which is what would make ids enumerable.
     assert len({new_ticket_id() for _ in range(1000)}) == 1000
+
+
+# --------------------------------------------------------------------------------------
+# How an amount is written -- shared by FactSet.allowed_literals() and the templates, so
+# the text a reply prints and the text the facts list are the same string.
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value, written",
+    [
+        (Decimal("42.10"), "42.10"),
+        (Decimal("42.1"), "42.10"),  # trailing zero restored
+        (Decimal("6.2"), "6.20"),
+        (Decimal("31"), "31.00"),
+    ],
+)
+def test_format_amount_always_writes_two_decimal_places(value: Decimal, written: str) -> None:
+    assert format_amount(value) == written
 
 
 # --------------------------------------------------------------------------------------
