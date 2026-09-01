@@ -225,6 +225,28 @@ logs, referrers, and shared URLs.
 
 ---
 
+## Narrowing a trace's referenced ids
+
+**What.** `tool_result.referenced` lists every identifier a tool call returned. Narrow it
+to the ids the rendered reply actually cites.
+
+**Why deferred.** The full list is a safe superset — a reader can still trace any
+statement in the reply back to a source record, which is the property
+[TRACEABILITY.md](../src/support_assistant/tracing/TRACEABILITY.md) needs it for. Doing
+the narrowing means rewriting a step the `TraceRecorder` has already stamped, so it buys a
+mutating method on the recorder, and the trade is worth making deliberately rather than in
+passing. It is also only a partial win: `count` and `statuses` still describe every row.
+
+**How.** After a passing grounding check the orchestrator already holds the identifiers,
+as the `IDENTIFIER` literals from `GroundingChecker.extract`. Either add a narrowing pass
+on the recorder before `finalise`, or build `tool_result` steps at persist time rather
+than in the loop — the second is cleaner but changes when a step gets its timestamp, which
+the ordering contract depends on.
+
+**Effort.** ~1h, plus a decision about which of the two shapes to take.
+
+---
+
 ## Trace retention
 
 **What.** A policy. Traces currently accumulate forever.

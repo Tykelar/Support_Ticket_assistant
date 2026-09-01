@@ -7,11 +7,11 @@ every field of every record into it multiplies exposure for no gain (TRACEABILIT
 ARCHITECTURE.md section 5).
 
 `referenced` lists every identifier the result returned. Narrowing it to just the ids the
-rendered reply cites is a deferred refinement: it only becomes meaningful once the
-pipeline renders a reply (phase 7), and doing it means either a second pass or building
-the `tool_result` step at persist time rather than in the loop -- a call the orchestrator
-will own when it exists. Until then the full list is a safe superset: a reader can still
-trace any statement in the reply to a record.
+rendered reply cites stays deferred now that the orchestrator exists: doing it means
+rewriting a step the recorder has already stamped, which buys a mutating method on
+`TraceRecorder` for a partial win -- `count` and `statuses` still describe every row. The
+full list is a safe superset: a reader can still trace any statement in the reply to a
+record ([roadmap](../../../docs/ROADMAP.md#narrowing-a-traces-referenced-ids)).
 
 `statuses` is ordered by enum declaration rather than row order, so the summary is stable
 to serialise and to assert on.

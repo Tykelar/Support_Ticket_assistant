@@ -27,9 +27,11 @@ results before choosing its next action ([ADR 0002](../../../docs/adr/0002-true-
 it can genuinely loop forever — asking for the same tool repeatedly, or oscillating
 between two. The cap is what stands between that and an unbounded run.
 
-**How it is proved.** A stub client that returns `ToolCall` forever must produce a
-`handed_off` ticket with `ITERATION_CAP_EXCEEDED` after exactly `MAX_ITERATIONS`
-iterations — asserted on the count, not just the outcome, so an off-by-one is caught.
+**How it is proved.** `tests/test_iteration_cap.py` drives a stub client that returns
+`ToolCall` forever and asserts the ticket reaches `handed_off` with
+`ITERATION_CAP_EXCEEDED` after exactly `MAX_ITERATIONS` iterations — on the count, not
+just the outcome, so an off-by-one that ran six times is caught. The test needs no
+timeout: the bound is structural, so a hang would itself be the failure.
 
 ---
 
@@ -176,9 +178,14 @@ doctored into its prose, renders through it, and asserts the `Violation`. A cont
 renders the same template undoctored and asserts it is clean, so the failure is the
 injected amount and not something incidental in the prose.
 
-Once the orchestrator exists, that test gains the other half: the ticket reaching
-`handed_off` with `UNGROUNDED_REPLY` and the literal recorded in the `grounding_check`
-trace step. Together they are the evidence the unforgivable bug cannot ship.
+Its other half is
+`test_an_ungrounded_literal_withholds_the_reply_and_hands_the_ticket_off`, which runs that
+same doctored template through the real orchestrator and asserts what a customer would
+have received: `reply is None`, `handed_off` / `UNGROUNDED_REPLY`, the literal in the
+`grounding_check` step and in the `final_decision` detail. Catching the literal and
+sending the reply anyway would pass the first half on its own. A second control replies
+honestly through the same path, so a pipeline that handed off every ticket could not pass
+by accident. Together they are the evidence the unforgivable bug cannot ship.
 
 ---
 

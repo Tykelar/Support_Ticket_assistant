@@ -109,6 +109,55 @@ def test_nothing_in_tracing_reaches_into_a_component() -> None:
 
 
 # --------------------------------------------------------------------------------------
+# The orchestrator, and what sits under it
+# --------------------------------------------------------------------------------------
+
+
+BELOW_THE_PIPELINE = (*MUTUALLY_IGNORANT, "tracing", "storage")
+"""ARCHITECTURE.md section 3: `api --> pipeline --> llm / tools / guardrails / storage`,
+and `pipeline --> tracing`. Dependencies point downward from the orchestrator."""
+
+
+@pytest.mark.parametrize("package", BELOW_THE_PIPELINE)
+def test_nothing_below_the_pipeline_imports_it(package: str) -> None:
+    """The arrow into `pipeline` comes only from `api`.
+
+    A component reaching back up into the orchestrator is how "the orchestrator is the
+    only thing that decides an outcome" (ADR 0005) stops being true: the first such import
+    is always a convenience, and the second is a component deciding a handoff for itself.
+    """
+    offenders = {
+        path.relative_to(SRC).as_posix(): sorted(bad)
+        for path in _modules_under(package)
+        if (bad := {m for m in _imports(path) if _component(m) == "pipeline"})
+    }
+    assert offenders == {}, f"{package}/ imports pipeline: {offenders}. The arrow points down."
+
+
+def test_storage_depends_on_no_component() -> None:
+    """`storage/` is reached *through* the orchestrator, and knows only the domain, the
+    clock, and the trace models it persists. A repository that imported `llm/` or
+    `guardrails/` would be a persistence layer with opinions about replies."""
+    offenders = {
+        path.relative_to(SRC).as_posix(): sorted(bad)
+        for path in _modules_under("storage")
+        if (bad := {m for m in _imports(path) if _component(m) in (*MUTUALLY_IGNORANT, "pipeline")})
+    }
+    assert offenders == {}, f"storage/ must not depend on a component, found {offenders}"
+
+
+def test_the_orchestrator_is_where_the_components_meet() -> None:
+    """The other half of the mutual-ignorance rule. `llm`, `tools` and `guardrails` never
+    import each other, so *something* has to hold all three -- and if nothing does, the
+    rule is being kept by the components not actually being wired together."""
+    imported = {
+        _component(m) for m in _imports(SRC / "pipeline" / "orchestrator.py")
+    }
+    assert set(MUTUALLY_IGNORANT) <= imported
+    assert "storage" in imported
+
+
+# --------------------------------------------------------------------------------------
 # The root modules
 # --------------------------------------------------------------------------------------
 

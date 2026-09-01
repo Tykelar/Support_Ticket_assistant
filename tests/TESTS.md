@@ -37,7 +37,12 @@ Full commands in [PACKAGING.md](../deploy/PACKAGING.md).
 
 Named explicitly so they are easy to find and to run in isolation.
 
-### 1. Happy path, end to end
+The first two go through `POST` and `GET`, so they land with `api/`. The pipeline half of
+each is already covered by `test_pipeline.py` -- the happy path with a grounded reply, and
+both handoff cases keeping their separate reasons -- so what the e2e files add is the HTTP
+surface and the background-task scheduling, not the behaviour.
+
+### 1. Happy path, end to end &nbsp;·&nbsp; *awaiting `api/`*
 
 `test_e2e_happy_path.py::test_billing_question_gets_grounded_reply`
 
@@ -57,7 +62,7 @@ Asserts, in order of what actually matters:
 pytest tests/test_e2e_happy_path.py -v
 ```
 
-### 2. Handoff on missing data
+### 2. Handoff on missing data &nbsp;·&nbsp; *awaiting `api/`*
 
 `test_e2e_handoff.py::test_unknown_user_hands_off`
 `test_e2e_handoff.py::test_known_user_with_no_data_hands_off`
@@ -77,7 +82,7 @@ Both assert `reply is None` — not empty string, not a holding message — and 
 pytest tests/test_e2e_handoff.py -v
 ```
 
-### 3. Iteration cap
+### 3. Iteration cap &nbsp;·&nbsp; *built*
 
 `test_iteration_cap.py::test_runaway_loop_hits_cap`
 
@@ -117,9 +122,14 @@ same `Template.render` a genuine one uses. A control alongside it renders the *u
 template against the same facts and asserts it is clean, so a failure means the injected
 amount and not something incidental in the prose.
 
-> **Built in two halves.** The checker half exists now and asserts the `Violation`. The
-> terminal-state half — `handed_off` / `UNGROUNDED_REPLY` and the `grounding_check` step —
-> lands with the orchestrator, since nothing before it can produce a ticket outcome.
+> **Built in two halves, and both are built.** The checker half asserts the `Violation`
+> directly. The terminal-state half —
+> `test_an_ungrounded_literal_withholds_the_reply_and_hands_the_ticket_off` — runs the same
+> doctored template through the real orchestrator and asserts `reply is None`,
+> `handed_off` / `UNGROUNDED_REPLY`, and the literal in both the `grounding_check` step and
+> the `final_decision` detail. The first half alone would pass a system that caught the
+> literal and sent the reply anyway. A control replies honestly through the same pipeline,
+> so handing off everything is not a way to pass.
 
 Alongside it: normalisation cases (`42.10` / `42,10` / `42.1` are the same fact),
 `TEMPLATE_SAFE_LITERALS` accepted, unknown identifiers rejected, and a `Violation`
@@ -140,12 +150,13 @@ fails. A mask that swallowed both would be a hole, not a fix.
 | `test_fake_llm.py` | keyword rules per intent, **tie resolves to `unknown`**, step state machine ordering |
 | `test_factset.py` | projection from observations, `allowed_literals()`, `allowed_entities()` |
 | `test_grounding.py` | the checker, as above; sourced entity text not re-scanned; `TEMPLATE_SAFE_LITERALS` is numbers-only; every status enum member extractable |
-| `test_layering.py` | the dependency direction of ARCHITECTURE.md §3, parsed from the imports (ADR 0011) |
-| `test_repository_contract.py` | **parametrised over both implementations** |
+| `test_layering.py` | the dependency direction of ARCHITECTURE.md §3, parsed from the imports (ADR 0011); nothing below `pipeline/` imports it, and the orchestrator is where the three mutually-ignorant components meet |
+| `test_repository_contract.py` | **parametrised over both implementations**; the trace round-trip, and the SQLite-only `CHECK` backstop |
 | `test_tracing.py` | step ordering, `seq` monotonicity, **`ts` increasing with `seq`**, summarisation rules |
 | `test_api.py` | `202` shape, `404`, field mutual exclusion per status, `422` on bad input |
 | `test_clock.py` | `FrozenClock` advances exactly one tick per call; duration derived from trace timestamps; **a grep guard that no module outside `clock.py` reads the wall clock** |
-| `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable |
+| `test_pipeline.py` | orchestration with stubbed collaborators; every handoff reason reachable, and what every handoff owes regardless of reason |
+| `test_iteration_cap.py` | the cap, self-contained — one of the three the brief names |
 
 ### Two that are easy to omit and worth keeping
 

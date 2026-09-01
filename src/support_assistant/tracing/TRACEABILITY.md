@@ -75,12 +75,16 @@ Enough to explain the reply, never more:
 What is deliberately excluded: full field-by-field records.
 
 `summarise(result)` in [summarise.py](summarise.py) produces this, one rule per tool. The
-`referenced` list holds every identifier the call returned. Narrowing it to just the ones
-the rendered reply cites is a deferred refinement — it only means anything once the
-pipeline renders a reply, and it needs either a second pass or building the `tool_result`
-step at persist time; the orchestrator will own that call when it exists. Until then the
-full list is a safe superset. The status distribution is emitted in enum-declaration
-order rather than row order, so a persisted summary is byte-stable run to run.
+`referenced` list holds every identifier the call returned. Narrowing it to just the
+ones the rendered reply cites stays a deferred refinement now that the orchestrator
+exists: doing it means rewriting a step the recorder has already stamped, which is a
+mutating method on `TraceRecorder` bought for a data-minimisation gain the `count` and
+`statuses` fields do not share. The full list is a safe superset — a reader can still
+trace any statement in the reply to a record — and the narrowing is on
+[the roadmap](../../../docs/ROADMAP.md#narrowing-a-traces-referenced-ids). The status
+distribution is
+emitted in enum-declaration order rather than row order, and the persist step preserves
+that ordering rather than sorting it ([STORAGE.md](../storage/STORAGE.md)).
 
 **The tension worth naming:** summarisation is lossy, and a lossy audit record can fail to
 explain an outcome. The rule above is chosen so the *decision-relevant* facts always
@@ -169,8 +173,9 @@ Given that a stranded ticket needs a reaper either way
 whether the list is empty but `literals_checked` does not, and it is what distinguishes a
 check that passed from one that had nothing to look at: `passed: true, literals_checked: 0`
 is a reply the checker never really inspected, and a bare `passed: true` would hide it.
-The orchestrator supplies the count as `len(GroundingChecker.extract(reply))` — the same
-extraction `verify` runs — so it is exactly the number of literals that were checked.
+The orchestrator supplies the count as `len(GroundingChecker.extract(reply, facts))` —
+the same extraction `verify` runs — so it is exactly the number of literals that were
+checked.
 That is why `extract` takes the `FactSet` as well as the reply: it masks sourced spans
 before scanning, and a count taken without them would not describe the same check.
 

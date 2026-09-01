@@ -57,22 +57,29 @@ def run_pipeline(ticket_id: str) -> None:
         template = spec_for(draft.template)   # one spec both renders and is checked
         reply = template.render(facts)
         violations = GroundingChecker.verify(reply, facts, template)
-        trace.grounding_check(len(GroundingChecker.extract(reply)), violations)
+        trace.grounding_check(len(GroundingChecker.extract(reply, facts)), violations)
         if violations:
             return finish_handoff(HandoffReason.UNGROUNDED_REPLY, detail=violations)
 
         return finish_replied(reply)
 
-    except UserNotFound:
-        return finish_handoff(HandoffReason.USER_NOT_FOUND)
-    except NoDataAvailable:
-        return finish_handoff(HandoffReason.DATA_NOT_FOUND)
+    except UserNotFound as exc:
+        return finish_handoff(HandoffReason.USER_NOT_FOUND, detail=f"{in_flight}: {exc}")
+    except NoDataAvailable as exc:
+        return finish_handoff(HandoffReason.DATA_NOT_FOUND, detail=f"{in_flight}: {exc}")
     except Exception as exc:                      # deliberate catch-all
         return finish_handoff(HandoffReason.TOOL_ERROR, detail=repr(exc))
 ```
 
 Illustrative, not the final source — but the control flow and the ordering of the
-guardrails are the contract.
+guardrails are the contract. `orchestrator.py` follows it, with three details the sketch
+elides: `in_flight` is the tool name the loop last dispatched, so a typed failure's detail
+names the incident and not just the category ([GUARDRAILS.md](../guardrails/GUARDRAILS.md)
+asks every handoff for both); `extract` takes the `FactSet` because it masks sourced spans
+before scanning, and `literals_checked` has to count what was really checked; and
+`finish_handoff` takes `detail` as a **required** argument rather than an optional one,
+since a default of `None` is how "every handoff carries its detail" erodes one call site
+at a time.
 
 ---
 
@@ -91,10 +98,12 @@ failures still get specific reasons. The exception is recorded in the trace and 
 structured log; only the stack trace is withheld from the API.
 
 **3. Every exit converges on two functions.** `finish_replied` and `finish_handoff` are
-the only writers of a terminal state. Each writes the `final_decision` trace step,
-persists atomically, and emits the outcome metric. There is no way to reach a terminal
+the only writers of a terminal state. Each writes the `final_decision` trace step and
+persists it with the trace in one `finalise` call. There is no way to reach a terminal
 state without being recorded — which is what makes requirement 5 hold by construction
-rather than by discipline.
+rather than by discipline. The outcome metric these will also emit lands with
+[`observability/`](../observability/OBSERVABILITY.md) in a later phase; the trace step and
+the persisted state are here now.
 
 **4. Grounding runs after rendering, unconditionally.** Not "if the LLM is real". The
 check is on the output, so it costs the same either way and it cannot be forgotten during
@@ -164,6 +173,11 @@ Each is produced at exactly one place in the code. That one-to-one mapping is wh
 handoff-rate-by-reason a trustworthy operational signal
 ([OBSERVABILITY.md](../observability/OBSERVABILITY.md)).
 
+Each also carries a detail naming the incident: the matched keywords behind an ambiguous
+classification, the failing tool and its message, the cap and its value, the offending
+literals and their classes. `HandoffReason` is what a dashboard counts; the detail is what
+a support agent reads.
+
 ---
 
 ## Structure
@@ -176,10 +190,21 @@ pipeline/
   PIPELINE.md       this file
 ```
 
-Dependencies are injected — repository, LLM client, tool registry, trace recorder, and
-`Clock` ([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
-No module-level singletons and no ambient time, so a test can assemble a pipeline with an
+Dependencies are injected — repository, LLM client, tool registry, `Clock`, the template
+resolver, and the iteration cap
+([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)). No
+module-level singletons and no ambient time, so a test can assemble a pipeline with an
 in-memory repository, a frozen clock, and a stub client that misbehaves on purpose.
+
+The `TraceRecorder` is **built from the injected clock** rather than passed in: it belongs
+to one run, and constructing it inside is what guarantees a run cannot inherit another's
+steps. The clock is the injected dependency; the recorder is a consequence of it.
+
+`resolve_template` defaults to `llm.templates.spec_for` and exists as a seam for one test.
+`test_grounding.py` has to render a deliberately doctored template through the *production*
+path — real `Template`, real field selection, real `Template.render` — to prove an
+ungrounded reply is withheld. Injecting the resolver is how it does that without reaching
+into `templates.py`'s private registry, which would test a path no reply ever takes.
 
 ---
 

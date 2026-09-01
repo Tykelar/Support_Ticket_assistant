@@ -33,7 +33,7 @@ one, so every uncertainty resolves to a human handoff (ADR 0005).
                    |
     +--------------v-------------------------------------------------------+
     | 1. CLASSIFY INTENT                                                    |
-    |    llm.classify_intent(ticket) -> billing_question                    |
+    |    llm.classify_intent(ticket) -> billing_question       [ADR 0012]   |
     |                                 | charging_session_problem            |
     |                                 | unknown -----------------------+    |
     +---------------------------------------------------------------- | ---+
@@ -49,9 +49,10 @@ one, so every uncertainty resolves to a human handoff (ADR 0005).
     |    loop exhausted -----------------------------------+-------+  |    |
     +-----------------------------------------------------|--------|--|----+
     | 3. GROUND AND VERIFY                                 v        |  |    |
-    |    facts = FactSet.from(recorded tool results)                |  |    |
-    |    reply = render(intent, facts)                    [ADR 0004]|  |    |
-    |    violations = GroundingChecker.verify(reply, facts)         |  |    |
+    |    facts = FactSet.from_observations(history)                 |  |    |
+    |    template = spec_for(draft.template)              [ADR 0004]|  |    |
+    |    reply = template.render(facts)                             |  |    |
+    |    violations = GroundingChecker.verify(reply, facts, template)  |    |
     |      |- none --> [OK] status = replied, reply persisted       |  |    |
     |      '- any  -------------------------------------------------+  |    |
     +-----------------------------------------------------------------v----+
