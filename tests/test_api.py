@@ -304,7 +304,9 @@ def test_updated_at_moves_when_the_ticket_reaches_a_terminal_state(
     assert seeded["created_at"] == seeded["updated_at"]
 
     ran = client.get(f"/tickets/{_post(client).json()['id']}").json()
-    assert ran["updated_at"] > ran["created_at"]
+    # Parsed, not compared as strings: `...:00Z` and `...:00.110000Z` do not order
+    # lexicographically, which is a trap worth not leaving in the suite.
+    assert datetime.fromisoformat(ran["updated_at"]) > datetime.fromisoformat(ran["created_at"])
 
 
 def test_the_timestamps_are_utc_with_a_z(client: TestClient) -> None:
