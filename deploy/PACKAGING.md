@@ -11,10 +11,11 @@ but Docker.
 
 ```bash
 git clone <repo> && cd support-ticket-assistant
-docker compose up
+docker compose -f deploy/docker-compose.yml up
 ```
 
-Service on `http://localhost:8000`. Interactive API docs at `/docs`.
+Service on `http://localhost:8000`. Interactive API docs at `/docs`. If port 8000 is
+already taken on the machine, `HOST_PORT=9000 docker compose -f deploy/docker-compose.yml up`.
 
 ## Run it — local Python
 
@@ -28,9 +29,12 @@ Python 3.12+.
 ## Test it
 
 ```bash
-pytest                                   # local
-docker compose run --rm api pytest       # in the container
+pytest                                                              # local
+docker compose -f deploy/docker-compose.yml run --rm api pytest     # in the container
 ```
+
+`pytest` excludes one test by default — `test_docker.py`, which builds this image and
+drives a live container. Run it on its own with `pytest -m docker` (needs Docker).
 
 ---
 
@@ -67,9 +71,14 @@ that is the point, and it is why the optional LLM is opt-in rather than opt-out.
 |---|---|---|
 | `MAX_ITERATIONS` | `5` | hard cap on tool-loop iterations ([GUARDRAILS.md](../src/support_assistant/guardrails/GUARDRAILS.md)) |
 | `DATABASE_PATH` | `data/tickets.db` | SQLite file; `:memory:` for a throwaway run |
-| `LLM_PROVIDER` | `fake` | `fake` or `ollama` |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | only read when `LLM_PROVIDER=ollama` |
+| `LLM_PROVIDER` | `fake` | `fake` or `ollama` &mdash; see note |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | only read when `LLM_PROVIDER=ollama` &mdash; see note |
 | `LOG_LEVEL` | `info` | structured JSON log level |
+
+> **`LLM_PROVIDER` / `OLLAMA_BASE_URL` are listed but not yet wired.** The real client
+> (`llm/ollama.py`) is phase 11; until it lands, `create_app` uses `FakeLLM` regardless of
+> what these are set to. They are in the table and in `docker-compose.yml` so the surface
+> is documented ahead of the code that reads it.
 
 ---
 
@@ -108,12 +117,14 @@ description of the architecture, not a shortcut.
 deploy/
   Dockerfile
   docker-compose.yml
-  .dockerignore
   PACKAGING.md      this file
+.dockerignore       repo root, not here — see below
 ```
 
-`.dockerignore` excludes `.git`, `data/`, caches, and the virtualenv — build context stays
-small and no local database is baked into an image.
+`.dockerignore` sits at the **repo root**, not in `deploy/`. The build context is the repo
+root — the image needs `src/`, `pyproject.toml` and `tests/`, all above `deploy/` — and
+Docker only reads `<context>/.dockerignore`. It excludes `.git`, `data/`, caches, and the
+virtualenv, so the build context stays small and no local database is baked into an image.
 
 ---
 
