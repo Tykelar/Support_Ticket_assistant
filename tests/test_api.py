@@ -22,6 +22,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -41,6 +42,7 @@ from support_assistant.domain import (
 from support_assistant.enums import LiteralClass
 from support_assistant.llm.fake import FakeLLM
 from support_assistant.storage.memory import InMemoryTicketRepository
+from support_assistant.storage.sqlite import SqliteTicketRepository
 from support_assistant.tracing.models import FinalDecision, GroundingCheck, TraceStep, Violation
 
 _NOW = datetime(2026, 8, 31, 10, 14, tzinfo=UTC)
@@ -423,3 +425,48 @@ def test_health_reports_unavailable_when_the_database_does_not() -> None:
 def test_the_interactive_docs_are_served(client: TestClient) -> None:
     # README points a reader at /docs as the way to try the service.
     assert client.get("/docs").status_code == 200
+
+
+# --------------------------------------------------------------------------------------
+# Wiring
+#
+# Every test above injects its collaborators, which means none of them exercises what
+# `uvicorn support_assistant.api.app:app` actually runs. These two do.
+# --------------------------------------------------------------------------------------
+
+
+def test_the_lifespan_opens_the_configured_database_and_closes_it_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The production wiring: no repository injected, so `create_app` builds one from
+    `DATABASE_PATH` and owns it for the life of the application.
+
+    Closing matters as much as opening. The connection is held open for the process
+    (STORAGE.md), so a lifespan that leaked it would hold a file handle after shutdown --
+    invisible in a container that is exiting anyway, and a locked database in a test suite.
+    """
+    database = tmp_path / "data" / "tickets.db"
+    monkeypatch.setenv("DATABASE_PATH", str(database))
+
+    app = create_app()
+    with TestClient(app) as running:
+        assert running.get("/health").json() == {"status": "ok"}
+        repository = app.state.repository
+
+    assert database.exists()  # created on startup, parent directory and all
+    with pytest.raises(sqlite3.ProgrammingError):
+        repository.connection.execute("SELECT 1")  # closed on shutdown
+
+
+def test_an_injected_repository_survives_the_app_that_borrowed_it(tmp_path: Path) -> None:
+    """The other half of the ownership rule. A caller that passes a repository in keeps
+    it: shutting down an app must not close a connection its owner is still using."""
+    repository = SqliteTicketRepository(tmp_path / "tickets.db", FrozenClock())
+
+    with TestClient(create_app(repository=repository, llm=FakeLLM(), clock=FrozenClock())):
+        pass
+
+    try:
+        repository.connection.execute("SELECT 1")  # still open, because it was never ours
+    finally:
+        repository.close()
