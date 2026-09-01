@@ -178,7 +178,7 @@ Not part of the brief's contract; they exist to make the service operable.
 | Endpoint | Returns |
 |---|---|
 | `GET /health` | `200 {"status": "ok"}` — or `503 {"status": "unavailable"}`. Backs the container `HEALTHCHECK` ([PACKAGING.md](../../../deploy/PACKAGING.md)) |
-| `GET /metrics` &nbsp;·&nbsp; *awaiting `observability/`* | the in-process counters and histograms from [OBSERVABILITY.md](../observability/OBSERVABILITY.md) |
+| `GET /metrics` | `200 text/plain` — the in-process counters and histograms from [OBSERVABILITY.md](../observability/OBSERVABILITY.md), in Prometheus exposition format |
 
 **`/health` asks the repository a real question** rather than returning a constant. A check
 that only proves the process is running is worse than none: the container reports healthy,
@@ -186,9 +186,12 @@ traffic keeps arriving, and every request fails against a database that is gone.
 failure from storage — missing file, locked database, corrupt page — is reported the same
 way, because they all mean the same thing to whoever is reading it.
 
-`/metrics` is not built. Its counters are produced by `observability/`, which does not
-exist yet, and an endpoint serving an empty metric set would be worse than an absent one:
-a dashboard reads zeros as "nothing is wrong".
+**`/metrics` renders the `MetricRegistry`** `create_app` built and every pipeline run
+writes to (via `record_run`, [ADR 0014](../../../docs/adr/0014-metrics-derived-from-the-trace.md)).
+The endpoint is always present and always names its metric families; only the sample lines
+wait for the first run, so a scrape is never an empty body a dashboard could misread as
+"nothing is wrong". The registry the background task increments is the same object this
+endpoint reads — both come from `app.state`.
 
 Both are unauthenticated. So is everything else — see below.
 
@@ -199,9 +202,9 @@ Both are unauthenticated. So is everything else — see below.
 ```
 api/
   __init__.py
-  app.py            FastAPI app factory, lifespan (DB open/close), the module-level `app`
+  app.py            FastAPI app factory, lifespan (DB open/close, logging), the module-level `app`
   routes.py         the ticket endpoints
-  ops.py            /health
+  ops.py            /health and /metrics
   schemas.py        Pydantic request/response models
   dependencies.py   app.state, read back as the protocols a handler is typed against
   API.md            this file
@@ -230,8 +233,9 @@ Anyone who can reach the service can post tickets and read any ticket whose id t
 
 Concretely, what an attacker with a ticket id gets: the customer's name, their invoice
 ids, amounts and payment statuses, their charging stations — the whole trace, which exists
-precisely to be complete. `GET /metrics`, once `observability/` lands, will separately expose
-ticket volumes and the handoff breakdown to anyone who asks.
+precisely to be complete. `GET /metrics` separately exposes ticket volumes and the handoff
+breakdown to anyone who asks — in production it belongs on an internal listener, not the
+public one ([ROADMAP](../../../docs/ROADMAP.md#authentication-and-rate-limiting)).
 
 The only control is that ticket ids are 128 bits of randomness, so they cannot be
 enumerated or guessed. That makes the ids a bearer token in everything but name — which is

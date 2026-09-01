@@ -75,10 +75,10 @@ separately, so it is covered by tests: the frozen clock advances a known tick, w
 the expected duration arithmetic rather than a wall-clock race
 ([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
 
-### The stranded-ticket gauge
+### The stranded-ticket gauge — deferred
 
 ```
-tickets_processing_age_seconds           gauge (max)
+tickets_processing_age_seconds           gauge (max)      NOT WIRED
 ```
 
 Directly instruments ADR 0001's known limitation. In-process background work is lost if
@@ -88,6 +88,16 @@ else on this list would notice — the run simply never finishes.
 Alert when the oldest `processing` ticket exceeds a few multiples of p99 pipeline
 duration. This gauge is also the trigger for the reaper that a production version would
 add.
+
+**Why it is not built yet.** Every other metric here is folded from a *finished* run
+([ADR 0014](../../../docs/adr/0014-metrics-derived-from-the-trace.md)); this one is the
+opposite — it is a question about runs that have *not* finished, answerable only by a live
+read against the repository (`MIN(created_at) WHERE status = 'processing'`). That means a
+new method on the `TicketRepository` protocol, which is one of the system's fixed
+contracts. It lands with the reaper that consumes the same query
+([ROADMAP](../../../docs/ROADMAP.md#durable-work-and-a-reaper)) — the two are one change.
+Until then the blind spot is explicit: a run whose `finalise` failed is counted by
+*nothing* on this page, because `record_run` runs after the persist.
 
 ---
 
@@ -141,17 +151,46 @@ aggregator widens their exposure for no diagnostic gain.
 
 ---
 
+## Wiring
+
+**Every metric is derived from the finished trace, once**
+([ADR 0014](../../../docs/adr/0014-metrics-derived-from-the-trace.md)).
+`metrics.record_run(registry, status=, reason=, steps=)` walks the same `list[TraceStep]`
+that `repository.finalise` persists and `GET /tickets/{id}` serves, and updates every
+family from it. `run_pipeline` calls it exactly once, **after** `repository.finalise` and
+below the catch-all — so a run whose terminal write failed is not counted, and `_decide`
+keeps the "cannot write" property [ADR 0013](../../../docs/adr/0013-one-write-outside-the-catch-all.md)
+gave it. `pipeline_duration_seconds` is `steps[-1].ts - steps[0].ts`, so under a
+`FrozenClock` the duration is arithmetic and is tested like anything else.
+
+**The registry is injected, not reached for.** `run_pipeline` takes a `MetricRegistry`,
+`create_app` owns one on `app.state`, `GET /metrics` reads that same object — the pattern
+`api/` already uses for `TicketRepository`. The module-level `metrics.REGISTRY` is the
+production default, exactly as `registry.run` and `MAX_ITERATIONS` are defaults one layer
+down. Tests inject their own, so one run never colours another's `/metrics`.
+
+**Structured logs come from the recorded step, live.** `TraceRecorder` takes an optional
+`on_step` callback — injected, never imported, so `tracing/` stays below `observability/`
+— and the orchestrator wires `logging.log_step` as it, under a `ticket_scope(ticket_id)`
+so every line carries the id. Unlike the metrics, the log is emitted step by step during
+the run, which is what lets it survive a process death that loses the not-yet-assembled
+trace. `configure_logging()` runs in the app lifespan; level is `LOG_LEVEL`
+([PACKAGING.md](../../../deploy/PACKAGING.md)), then `info`.
+
+---
+
 ## Structure
 
 ```
 observability/
   __init__.py
-  logging.py         JSON formatter, ticket_id context binding
-  metrics.py         counters and histograms, in-process registry
+  logging.py         JSON formatter, ticket_id context binding, the log_step hook
+  metrics.py         Counter / Histogram, the in-process MetricRegistry, record_run
   OBSERVABILITY.md   this file
 ```
 
-Metrics are held in an in-process registry and exposed on `GET /metrics`. No Prometheus
-client dependency and no push gateway — the point is to show what is worth measuring and
-to have it counted, not to run a metrics stack inside a take-home. Swapping the registry
-for `prometheus_client` is a contained change.
+Metrics are held in an in-process registry and exposed on `GET /metrics` as Prometheus
+text. No Prometheus client dependency and no push gateway — the point is to show what is
+worth measuring and to have it counted, not to run a metrics stack inside a take-home.
+`MetricRegistry` is the seam; swapping it for `prometheus_client` is a contained change
+that leaves `record_run` and the endpoint untouched.

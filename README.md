@@ -7,10 +7,11 @@ hands the ticket to a human — recording everything it did along the way.
 
 Built for the [take-home challenge](docs/brief.md).
 
-> **Status: the service runs.** `POST` a ticket and `GET` it back with its reply and
-> full trace — under `uvicorn`, from the command below. Still to land, per
-> [Build order](#build-order): `/metrics` and structured logs (phase 9), and the Docker
-> packaging (phase 10), so `docker compose up` does not work yet.
+> **Status: the service runs, with metrics and structured logs.** `POST` a ticket and
+> `GET` it back with its reply and full trace; `GET /metrics` for the handoff and grounding
+> counters; JSON logs, one line per pipeline step. Under `uvicorn`, from the command below.
+> Still to land, per [Build order](#build-order): the Docker packaging (phase 10), so
+> `docker compose up` does not work yet.
 
 ---
 
