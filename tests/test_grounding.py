@@ -4,20 +4,44 @@ Reserved by TESTS.md ("the checker"). The load-bearing case is
 `test_ungrounded_literal_is_caught`: a deliberately doctored template that injects an
 amount no tool returned must be flagged, with the offending literal recorded. That is the
 evidence the brief's "one unforgivable bug" cannot ship (GUARDRAILS.md section 3, ADR
-0004). The full `handed_off` / `UNGROUNDED_REPLY` outcome is asserted end to end in the
-pipeline phase; here the checker is exercised directly.
+0004).
+
+It has two halves, and both are here now. The first asserts the `Violation` from the
+checker directly. The second --
+`test_an_ungrounded_literal_withholds_the_reply_and_hands_the_ticket_off` -- runs the same
+doctored template through the real orchestrator and asserts the outcome a customer would
+have seen: no reply, `handed_off` / `UNGROUNDED_REPLY`, and the offending literal in the
+`grounding_check` step. Catching the literal and sending the reply anyway would pass the
+first half on its own.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
-from support_assistant.domain import Observation, ToolCall
-from support_assistant.enums import InvoiceStatus, ReplyTemplate, SessionStatus
+from support_assistant.clock import FrozenClock
+from support_assistant.domain import (
+    HandoffReason,
+    Observation,
+    Ticket,
+    ToolCall,
+    new_ticket_id,
+)
+from support_assistant.enums import (
+    InvoiceStatus,
+    ReplyTemplate,
+    SessionStatus,
+    TicketStatus,
+)
 from support_assistant.guardrails.factset import FactSet, SessionFact
 from support_assistant.guardrails.grounding import GroundingChecker
 from support_assistant.llm import templates
+from support_assistant.llm.fake import FakeLLM
+from support_assistant.pipeline.orchestrator import run_pipeline
+from support_assistant.storage.memory import InMemoryTicketRepository
 from support_assistant.tools import registry
+from support_assistant.tracing.models import FinalDecision, GroundingCheck
 
 
 def _facts(user_id: str, data_tool: str) -> FactSet:
@@ -47,18 +71,26 @@ _NO_SAFE_LITERALS = _Template()
 # --------------------------------------------------------------------------------------
 
 
-def test_ungrounded_literal_is_caught() -> None:
-    # A real Template -- the production dataclass, the real field selection, the real
-    # safe-literal set -- with one amount doctored into its prose. Rendered through the
-    # same code path render() uses, so the reply under test is a genuinely rendered one.
-    facts = _facts("u_002", "get_invoices")  # amounts 42.10, 38.90, 31.20 -- never 99.00
+def _doctored() -> templates.Template:
+    """A real Template -- the production dataclass, the real field selection, the real
+    safe-literal set -- with one amount doctored into its prose.
+
+    u_002's invoices are 42.10, 38.90 and 31.20. Never 99.00.
+    """
     honest = templates.spec_for(ReplyTemplate.BILLING_FAILED)
-    doctored = templates.Template(
+    return templates.Template(
         name=honest.name,
         body="Hi {name}, invoice {invoice_id} for 99.00 {currency} has a failed payment.",
         context=honest.context,
         TEMPLATE_SAFE_LITERALS=honest.TEMPLATE_SAFE_LITERALS,
     )
+
+
+def test_ungrounded_literal_is_caught() -> None:
+    # Rendered through the same code path render() uses, so the reply under test is a
+    # genuinely rendered one rather than a hand-written string.
+    facts = _facts("u_002", "get_invoices")
+    doctored = _doctored()
 
     reply = doctored.render(facts)
     violations = GroundingChecker.verify(reply, facts, doctored)
@@ -77,6 +109,73 @@ def test_the_honest_version_of_that_template_is_clean() -> None:
     facts = _facts("u_002", "get_invoices")
     honest = templates.spec_for(ReplyTemplate.BILLING_FAILED)
     assert GroundingChecker.verify(honest.render(facts), facts, honest) == []
+
+
+# --------------------------------------------------------------------------------------
+# ...and its other half: what the customer would actually have received
+# --------------------------------------------------------------------------------------
+
+
+def _run_with(template: templates.Template) -> Ticket:
+    """One billing ticket for u_002 through the real orchestrator, rendering `template`.
+
+    The template is resolved through the pipeline's injected resolver rather than by
+    patching the private registry, so the reply travels the production path: render, then
+    verify against the *same* spec, then decide.
+    """
+    repository = InMemoryTicketRepository(FrozenClock())
+    now = datetime(2026, 8, 31, 10, 14, tzinfo=UTC)
+    ticket = Ticket(
+        id=new_ticket_id(),
+        user_id="u_002",
+        subject="My payment failed",
+        body="Why was my last invoice not paid?",
+        created_at=now,
+        updated_at=now,
+    )
+    repository.create(ticket)
+
+    run_pipeline(
+        ticket.id,
+        repository=repository,
+        llm=FakeLLM(),
+        clock=FrozenClock(),
+        resolve_template=lambda _: template,
+    )
+
+    stored = repository.get(ticket.id)
+    assert stored is not None
+    return stored
+
+
+def test_an_ungrounded_literal_withholds_the_reply_and_hands_the_ticket_off() -> None:
+    # The half that matters to a customer. Catching the literal and sending the reply
+    # anyway would pass the checker test above and still be the unforgivable bug.
+    ticket = _run_with(_doctored())
+
+    assert ticket.status is TicketStatus.HANDED_OFF
+    assert ticket.handoff_reason is HandoffReason.UNGROUNDED_REPLY
+    assert ticket.reply is None  # not the doctored text, not a hedged version of it
+
+    check = next(step for step in ticket.trace if isinstance(step, GroundingCheck))
+    assert check.passed is False
+    assert [v.literal for v in check.violations] == ["99.00"]
+
+    final = ticket.trace[-1]
+    assert isinstance(final, FinalDecision)
+    assert final.reason is HandoffReason.UNGROUNDED_REPLY
+    assert "99.00" in (final.detail or "")  # the evidence, not just the category
+
+
+def test_the_honest_template_reaches_the_customer_through_the_same_path() -> None:
+    # The control for the half above: same ticket, same pipeline, undoctored template.
+    # Without it a pipeline that handed off every ticket would pass the test above.
+    ticket = _run_with(templates.spec_for(ReplyTemplate.BILLING_FAILED))
+
+    assert ticket.status is TicketStatus.REPLIED
+    assert ticket.reply is not None
+    assert "99.00" not in ticket.reply
+    assert "42.10" in ticket.reply
 
 
 # --------------------------------------------------------------------------------------
