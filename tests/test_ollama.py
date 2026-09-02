@@ -50,7 +50,9 @@ def _ticket(subject: str, body: str, *, user_id: str = "u_002") -> Ticket:
     )
 
 
-def _client(content: str, *, status: int = 200, seen: list[httpx.Request] | None = None) -> OllamaLLM:
+def _client(
+    content: str, *, status: int = 200, seen: list[httpx.Request] | None = None
+) -> OllamaLLM:
     """An `OllamaLLM` whose transport returns one canned `/api/chat` response.
 
     `content` is the assistant message body Ollama puts in `message.content` -- a JSON
