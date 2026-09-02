@@ -167,3 +167,12 @@ def test_a_server_error_fails_closed() -> None:
     llm = _client('{"intent": "billing_question"}', status=503)
     with pytest.raises(OllamaProtocolError):
         llm.classify_intent(_ticket("s", "b"))
+
+
+def test_a_json_non_object_response_fails_closed() -> None:
+    # Valid JSON in JSON mode, but an array, not an object. `classify_intent` would call
+    # `.get` on it -- the shape guard must turn that into a closed failure, not an
+    # AttributeError that escapes as something other than TOOL_ERROR.
+    llm = _client("[]")
+    with pytest.raises(OllamaProtocolError):
+        llm.classify_intent(_ticket("s", "b"))

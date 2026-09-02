@@ -6,9 +6,9 @@ clean clone never needs a model server to run the service or pass the tests. It 
 pulls in), which is why `provider.py` imports this module **lazily**: nothing drags
 `httpx` onto the default `fake` path.
 
-It talks to a local Ollama server in **JSON mode** and maps the reply straight onto the
-domain types -- `TypeAdapter(Step)` for `decide_next_step`, `Intent` inside a
-`Classification` for `classify_intent`. Design and the fail-closed contract are in
+It talks to a local Ollama server in **JSON mode** and validates the reply straight onto
+the domain types -- `TypeAdapter(Step)` for `decide_next_step`, `Classification` for
+`classify_intent`. Design and the fail-closed contract are in
 [ADR 0015](../../../docs/adr/0015-json-mode-over-the-tool-calling-api.md) and
 [LLM.md](LLM.md).
 
@@ -26,7 +26,6 @@ from pydantic import TypeAdapter, ValidationError
 from support_assistant.domain import (
     Classification,
     HandoffReason,
-    Intent,
     Observation,
     ReplyTemplate,
     Step,
@@ -128,12 +127,12 @@ class OllamaLLM:
                 {"role": "user", "content": _ticket_text(ticket)},
             ]
         )
-        raw = answer.get("intent")
         try:
-            intent = Intent(raw)
-        except ValueError as exc:
-            raise OllamaProtocolError(f"model returned an unknown intent {raw!r}") from exc
-        return Classification(intent=intent)
+            return Classification.model_validate({"intent": answer.get("intent")})
+        except ValidationError as exc:
+            raise OllamaProtocolError(
+                f"model returned a classification that does not validate: {exc}"
+            ) from exc
 
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
         """Map the model's reply onto `ToolCall | Reply | Handoff` directly (that is why
@@ -157,8 +156,14 @@ class OllamaLLM:
 
     def _chat(self, messages: list[dict[str, str]]) -> dict:
         """One `/api/chat` round trip in JSON mode; returns the parsed `message.content`
-        object. Transport failure, a non-2xx status, a non-JSON body, content that is not
-        JSON, or a JSON value that is not an object all become `OllamaProtocolError`.
+        object.
+
+        Every way this can fail to hand back a well-formed object -- a transport or timeout
+        error, a non-2xx status, a body that is not JSON, a missing `message.content`,
+        content that is not JSON despite JSON mode, or a JSON value that is not an object
+        -- is one `OllamaProtocolError`. The orchestrator maps them all to a single
+        `TOOL_ERROR` handoff (ADR 0015), so one exception with a message that names the
+        cause is the whole contract; a type per cause would only be collapsed again.
         """
         payload = {
             "model": self.model,
@@ -171,23 +176,12 @@ class OllamaLLM:
                 base_url=self.base_url, timeout=self.timeout, transport=self._transport
             ) as client:
                 response = client.post(_ENDPOINT, json=payload)
-                response.raise_for_status()
-                body = response.json()
-        except httpx.HTTPError as exc:
+            response.raise_for_status()
+            parsed = json.loads(response.json()["message"]["content"])
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise OllamaProtocolError(
-                f"chat request to {self.base_url} failed: {exc}"
+                f"chat call to {self.base_url} returned no well-formed answer: {exc!r}"
             ) from exc
-        except ValueError as exc:  # response body was not JSON
-            raise OllamaProtocolError("chat response body was not JSON") from exc
-
-        try:
-            content = body["message"]["content"]
-        except (KeyError, TypeError) as exc:
-            raise OllamaProtocolError("chat response carried no message.content") from exc
-        try:
-            parsed = json.loads(content)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise OllamaProtocolError("model did not return JSON despite JSON mode") from exc
         if not isinstance(parsed, dict):
             raise OllamaProtocolError(
                 f"model returned a JSON {type(parsed).__name__}, not an object"

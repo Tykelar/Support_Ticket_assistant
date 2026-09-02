@@ -7,7 +7,8 @@ when none is injected; an injected client still wins.
 
 `OllamaLLM` is imported **inside** the `ollama` branch, not at module top: that is what
 keeps `httpx` (and the `ollama` extra) off the default `fake` path, so a clean production
-install without `[dev]`/`[ollama]` still boots.
+install without `[dev]`/`[ollama]` still boots. The default *model* name is imported the
+same way -- it lives on `OllamaLLM` (`DEFAULT_MODEL`), so it is not written out twice.
 """
 
 import os
@@ -16,7 +17,8 @@ from support_assistant.llm.fake import FakeLLM
 from support_assistant.llm.protocol import LLMClient
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_OLLAMA_MODEL = "llama3.1"
+"""Where a stock local Ollama listens. Its home is here rather than on `OllamaLLM`, whose
+`base_url` is a required argument (like `SqliteTicketRepository`'s `path`)."""
 
 
 def build_llm() -> LLMClient:
@@ -31,10 +33,10 @@ def build_llm() -> LLMClient:
     if provider in ("", "fake"):
         return FakeLLM()
     if provider == "ollama":
-        from support_assistant.llm.ollama import OllamaLLM
+        from support_assistant.llm.ollama import DEFAULT_MODEL, OllamaLLM
 
         return OllamaLLM(
             base_url=os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL),
-            model=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
+            model=os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL),
         )
     raise ValueError(f"LLM_PROVIDER must be 'fake' or 'ollama', got {provider!r}")

@@ -46,6 +46,15 @@ def test_ollama_is_selected_and_carries_its_configuration(monkeypatch: pytest.Mo
     assert llm.model == "mistral"
 
 
+def test_ollama_uses_the_default_model_when_the_env_var_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `OLLAMA_MODEL` is cleared by the autouse fixture. The default must come from
+    # `OllamaLLM` itself -- `provider.py` no longer keeps its own copy of the name.
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    assert build_llm().model == "llama3.1"
+
+
 def test_an_unknown_provider_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "gpt5")
     with pytest.raises(ValueError, match="LLM_PROVIDER"):

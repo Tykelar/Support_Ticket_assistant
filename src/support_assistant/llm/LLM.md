@@ -188,8 +188,8 @@ The same two methods against a local Ollama server over HTTP (`httpx`, an
 
 `POST {base_url}/api/chat` in **JSON mode** — `"format": "json"`, `"stream": false` — and
 the reply in `message.content` is validated straight onto the domain types:
-`TypeAdapter(Step).validate_python(...)` for `decide_next_step`, `Intent(...)` inside a
-`Classification` for `classify_intent`. The model fills in the discriminated union the
+`TypeAdapter(Step).validate_python(...)` for `decide_next_step`,
+`Classification.model_validate(...)` for `classify_intent`. The model fills in the discriminated union the
 orchestrator already consumes from `FakeLLM`; JSON mode rather than the tool-calling API
 because `Reply` and `Handoff` are decisions, not tools, and `llm/` cannot import the
 registry to build a `tools` array anyway ([ADR 0015](../../../docs/adr/0015-json-mode-over-the-tool-calling-api.md)).

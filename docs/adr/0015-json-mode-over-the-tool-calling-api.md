@@ -33,8 +33,9 @@ Two constraints from this codebase bear on the choice:
 
 **`OllamaLLM` calls `/api/chat` in JSON mode** — `{"model", "messages", "format": "json",
 "stream": false}` — and validates `message.content` straight onto the domain types:
-`TypeAdapter(Step).validate_python(...)` for `decide_next_step`, `Intent(...)` inside a
-`Classification` for `classify_intent`.
+`TypeAdapter(Step).validate_python(...)` for `decide_next_step`,
+`Classification.model_validate(...)` for `classify_intent` (a `Classification` wraps the
+`Intent`, and Pydantic rejects a value outside the enum).
 
 The system prompt carries the tool catalogue (`get_user`, `get_invoices`,
 `get_charging_sessions`, each taking `user_id`), the five `ReplyTemplate` names, the
