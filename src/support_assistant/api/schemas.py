@@ -1,16 +1,12 @@
 """The wire contract: what a request must look like, and what a response says.
 
-These are deliberately separate from `domain.Ticket`. The domain model is what the system
-believes about a ticket; these are what the outside world may send and is shown. Serving
-the domain model directly would make every field an accidental part of the public API --
-`subject` and `body` echoed back for no reason, and any future internal field published
-the day it is added.
+Separate from `domain.Ticket` on purpose. The domain model is what the system believes;
+these are what the outside world may send and is shown. Serving the domain model directly
+would publish every future internal field the day it was added.
 
-Separate models, but **not** separate bounds. `user_id`, `subject` and `body` are
-annotated with `UserId`, `SubjectText` and `BodyText` from `domain`, the same constrained
-types `Ticket` uses, so the edge and the model the pipeline persists cannot disagree
-about what is too long. One definition, rather than two copies and a test to check they
-still match.
+Separate models, but **not** separate bounds: the three text fields reuse `UserId`,
+`SubjectText` and `BodyText` from `domain`, so the edge and the persisted model cannot
+disagree about what is too long.
 """
 
 from datetime import datetime
@@ -30,8 +26,8 @@ definition of a step's JSON shape, whichever direction it is travelling."""
 class CreateTicketRequest(BaseModel):
     """A ticket as a customer submits it.
 
-    `extra="forbid"` like `Ticket`: a client that misspells `body` is told so, rather than
-    having its ticket accepted with an empty one and answered from nothing.
+    `extra="forbid"`: a client that misspells `body` is told so, rather than having its
+    ticket accepted with an empty one and answered from nothing.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -42,11 +38,8 @@ class CreateTicketRequest(BaseModel):
 
 
 class TicketAccepted(BaseModel):
-    """The `202` body: the id, and the state the ticket is in when the response leaves.
-
-    Two fields on purpose. The client needs the id to poll with, and `processing` is the
-    honest answer to "is it done?" -- the pipeline has been scheduled, not run (ADR 0001).
-    """
+    """The `202` body: the id to poll with, and `processing` -- the honest answer to "is it
+    done?", since the pipeline has been scheduled, not run (ADR 0001)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -57,7 +50,7 @@ class TicketAccepted(BaseModel):
 class TicketView(BaseModel):
     """Everything an agent needs to answer "why did the AI say this?", in one response.
 
-    `subject` and `body` are not echoed back: whoever is reading a ticket already has the
+    `subject` and `body` are not echoed back: whoever reads a ticket already has the
     customer's words. What they do not have is what the system did with them.
     """
 
@@ -69,14 +62,13 @@ class TicketView(BaseModel):
 
     reply: str | None
     handoff_reason: HandoffReason | None
-    """Mutually exclusive, and exactly one is non-null in a terminal state (ADR 0005).
-    Both are served as `null` rather than omitted -- API.md's field contract promises the
-    keys are always there, and `null` is the answer to "was there a reply?"."""
+    """Mutually exclusive; exactly one is non-null in a terminal state (ADR 0005). Both are
+    served as `null` rather than omitted, because API.md promises the keys are there."""
 
     created_at: datetime
     updated_at: datetime
-    """When the ticket arrived, and when the run finished. Equal until `finalise` moves
-    the second one, so the pair is also how long the pipeline took."""
+    """When the ticket arrived, and when the run finished -- so the pair is also how long
+    the pipeline took."""
 
     trace: list[TraceStep]
     """Empty for a `processing` ticket, not partial: steps are written with the terminal
@@ -86,11 +78,9 @@ class TicketView(BaseModel):
     def _served_steps(self, trace: list[TraceStep]) -> list[dict[str, Any]]:
         """Steps as TRACEABILITY.md writes them: aliased, and without their empty fields.
 
-        `by_alias` is what makes `Violation.literal_class` appear as `class`, the key the
-        documented JSON uses -- the field is renamed in Python only because `class` is a
-        keyword. `exclude_none` drops the fields a given step does not have, because the
-        trace is read by a human under time pressure and a column of nulls on every step
-        is noise. The top-level fields above are the opposite case and keep theirs.
+        `by_alias` makes `Violation.literal_class` appear as `class`. `exclude_none` drops
+        the fields a step does not have, because the trace is read by a human under time
+        pressure and a column of nulls on every step is noise.
         """
         return [
             _STEP.dump_python(step, mode="json", by_alias=True, exclude_none=True)
@@ -99,11 +89,11 @@ class TicketView(BaseModel):
 
 
 class Health(BaseModel):
-    """`/health`'s body. A named state rather than a bare `200` so a reader of the
-    response -- or a log line -- can see which one was reported."""
+    """`/health`'s body. A named state rather than a bare `200`, so a reader of the
+    response can see which one was reported."""
 
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["ok", "unavailable"]
     """Exactly the two states API.md documents, so the pair is published in the OpenAPI
-    schema and a third one cannot be invented without changing the contract."""
+    schema and a third cannot be invented without changing the contract."""

@@ -30,14 +30,16 @@ from support_assistant.domain import (
 )
 from support_assistant.enums import (
     InvoiceStatus,
+    LiteralClass,
     ReplyTemplate,
     SessionStatus,
     TicketStatus,
 )
 from support_assistant.guardrails.factset import FactSet, SessionFact
-from support_assistant.guardrails.grounding import GroundingChecker
+from support_assistant.guardrails.grounding import GroundingChecker, Literal
 from support_assistant.llm import templates
 from support_assistant.llm.fake import FakeLLM
+from support_assistant.observability.metrics import MetricRegistry
 from support_assistant.pipeline.orchestrator import run_pipeline
 from support_assistant.storage.memory import InMemoryTicketRepository
 from support_assistant.tools import registry
@@ -141,6 +143,7 @@ def _run_with(template: templates.Template) -> Ticket:
         llm=FakeLLM(),
         clock=FrozenClock(),
         resolve_template=lambda _: template,
+        metrics=MetricRegistry(),
     )
 
     stored = repository.get(ticket.id)
@@ -376,3 +379,27 @@ def test_every_enumerated_status_word_is_extractable(status: str) -> None:
     facts = FactSet(user_name="Ana Ribeiro", user_id="u_001")
     extracted = GroundingChecker.extract(f"The state is {status.value}.", facts)
     assert [lit.text for lit in extracted if lit.kind == "status"] == [status.value]
+
+
+# --------------------------------------------------------------------------------------
+# Every literal class has a rule
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", list(LiteralClass))
+def test_an_unsourced_literal_of_every_class_is_caught(
+    kind: LiteralClass, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`verify` decides per literal class. A class with no rule leaves its verdict unset,
+    which is an `UnboundLocalError` inside the guardrail rather than a withheld reply --
+    so a fourth class added to the enum has to fail here first.
+    """
+    monkeypatch.setattr(
+        GroundingChecker,
+        "extract",
+        staticmethod(lambda reply, facts: [Literal("zz_unsourced", kind)]),
+    )
+
+    result = GroundingChecker.verify("zz_unsourced", FactSet(), _NO_SAFE_LITERALS)
+
+    assert [v.literal_class for v in result.violations] == [kind]

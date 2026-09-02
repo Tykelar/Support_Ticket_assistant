@@ -3,24 +3,26 @@
 
 Two jobs, and only two:
 
-1. **Containment.** A model -- fake or real -- can only reach a registered name. An
-   unrecognised one is a `ToolExecutionError`, not an `AttributeError` or a call to
-   something that was never meant to be a tool.
-2. **Argument validation.** Each entry declares a Pydantic schema; bad arguments fail
+1. **Containment.** A model can only reach a registered name; an unrecognised one is a
+   `ToolExecutionError`, not an `AttributeError`.
+2. **Argument validation.** Each entry declares a Pydantic schema, so bad arguments fail
    before the tool body runs.
 
-Tracing is deliberately **not** a third job. The orchestrator records `tool_call` and
-`tool_result` around its own call to `run`; the registry never sees a `TraceRecorder` or
-a `Clock`, which is what lets `tools/` import nothing from `tracing/` (ADR 0010). Typed
-tool failures propagate unchanged -- the registry does not catch or convert them, so the
-orchestrator's handlers still map `UserNotFound` -> `USER_NOT_FOUND` and so on.
+Tracing is deliberately not a third job: the orchestrator records `tool_call` and
+`tool_result` around its own call, so `tools/` imports nothing from `tracing/` (ADR 0010).
+Typed tool failures propagate unchanged, so the orchestrator's handlers still map
+`UserNotFound` -> `USER_NOT_FOUND`.
 
-Adding a fourth tool is one entry here plus a schema, one keyword rule in `FakeLLM`, a
-fixture, and a test.
+**Adding a tool touches more than this file.** Beyond the entry here and its loader, it
+needs a summariser in `tracing/summarise.py`, a projection branch in
+`guardrails/factset.py`, a member of `domain.ToolResult.records`, a rule in `FakeLLM`, a
+line in `OllamaLLM`'s catalogue, and a fixture.
+`test_registry.py::test_every_registered_tool_is_summarised_and_projected` fails on the
+two that would otherwise break only at runtime.
 """
 
 from collections.abc import Callable
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -30,8 +32,8 @@ from support_assistant.tools.errors import ToolExecutionError, failed_fields
 
 
 class _UserIdArgs(BaseModel):
-    """Every current tool takes exactly one argument. `extra="forbid"` so an unexpected
-    key fails here rather than being silently dropped."""
+    """Every current tool takes exactly one argument. `extra="forbid"`, so an unexpected
+    key fails here rather than being dropped."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,7 +52,7 @@ _REGISTRY: dict[str, _Entry] = {
 }
 
 
-def run(name: str, args: dict) -> ToolResult:
+def run(name: str, args: dict[str, Any]) -> ToolResult:
     """Dispatch `name` with `args`, wrapping the tool's return in a `ToolResult`.
 
     Raises `ToolExecutionError` for an unregistered name or arguments that fail the

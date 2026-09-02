@@ -49,23 +49,31 @@ surface and the background-task scheduling, not the behaviour.
 
 ### 1. Happy path, end to end &nbsp;·&nbsp; *built*
 
-`test_e2e_happy_path.py::test_billing_question_gets_grounded_reply`
+`test_e2e_happy_path.py`, entered at
+`test_a_billing_question_gets_a_reply_and_no_handoff`
 
 `POST` a billing ticket for `u_002` (who has one failed invoice among paid ones) → `202`.
 `GET` → `status == "replied"`.
 
-Asserts, in order of what actually matters:
+The file asserts, in order of what actually matters:
 
-- the reply names the real invoice id and the real amount from the fixture;
-- **every literal in the reply appears in the fixture data** — the grounding property
+- the reply names the real invoice id and the real amount from the fixture
+  (`test_the_reply_names_the_real_invoice_and_the_real_amount`);
+- **every literal in the reply appears in the fixture data**
+  (`test_every_literal_in_the_reply_comes_from_the_fixture_data`) — the grounding property
   asserted directly on the output, not merely trusted because the checker ran. The
   identifiers, numbers and status words are extracted with the test's *own* regexes and
   compared against the raw `fixtures/*.json`, never against the `FactSet` the pipeline
   built: a test that borrowed the checker's idea of a literal could not fail when that
   idea is the thing that is wrong;
-- the trace contains `intent_classified`, both `tool_call`/`tool_result` pairs,
-  `grounding_check` passed, and `final_decision`;
-- `handoff_reason` is `None`.
+- the trace contains `intent_classified` with its evidence
+  (`test_the_trace_records_the_classification_with_its_evidence`), both
+  `tool_call`/`tool_result` pairs (`test_the_trace_holds_both_tool_calls_with_their_results`,
+  `test_the_tool_result_summary_can_be_traced_back_to_the_reply`), a passed
+  `grounding_check` (`test_the_grounding_check_ran_and_passed`), and exactly one
+  `final_decision` (`test_the_trace_ends_in_exactly_one_final_decision`);
+- `handoff_reason` is `None`, and the reply greets the customer by their real name
+  (`test_the_reply_greets_the_customer_by_their_real_name`).
 
 ```bash
 pytest tests/test_e2e_happy_path.py -v
@@ -73,19 +81,24 @@ pytest tests/test_e2e_happy_path.py -v
 
 ### 2. Handoff on missing data &nbsp;·&nbsp; *built*
 
-`test_e2e_handoff.py::test_unknown_user_hands_off`
-`test_e2e_handoff.py::test_known_user_with_no_data_hands_off`
+`test_e2e_handoff.py` — one parametrised suite, both cases through every assertion
 
 Two cases, because the brief distinguishes "the user doesn't exist" from "the requested
 data doesn't exist" and they must not collapse into one reason.
 
-| Case | User | Expected reason |
-|---|---|---|
-| user absent from fixtures | `u_005` | `USER_NOT_FOUND` |
-| user exists, no invoices or sessions | `u_004` | `DATA_NOT_FOUND` |
+| Case | `pytest.param` id | User | Expected reason |
+|---|---|---|---|
+| user absent from fixtures | `absent-user` | `u_005` | `USER_NOT_FOUND` |
+| user exists, no invoices or sessions | `user-with-no-invoices` | `u_004` | `DATA_NOT_FOUND` |
 
-Both assert `reply is None` — not empty string, not a holding message — and that
-`final_decision` carries the reason **and** its supporting detail.
+They are parameters driven through every test in the file rather than two separately
+named tests, so neither case can quietly lose an assertion the other keeps:
+`test_missing_data_hands_the_ticket_off_with_its_own_reason` pins the reason per case,
+`test_a_handed_off_ticket_sends_the_customer_nothing` pins `reply is None` — not an empty
+string, not a holding message — and
+`test_the_final_decision_carries_the_reason_and_the_incident` pins the supporting detail.
+`test_the_two_cases_do_not_collapse_into_one_reason` is the one that fails if the two
+reasons are ever merged.
 
 ```bash
 pytest tests/test_e2e_handoff.py -v
@@ -165,7 +178,7 @@ fails. A mask that swallowed both would be a hole, not a fix.
 | `test_fake_llm.py` | keyword rules per intent, **tie resolves to `unknown`**, step state machine ordering |
 | `test_ollama.py` | `OllamaLLM` against `httpx.MockTransport` (no live server): the request is a JSON-mode `POST /api/chat` carrying the ticket text and the tool catalogue; canned tool-call / reply / handoff responses parse onto the decision union; a well-formed `"unknown"` is a value not an error; **every malformed answer and every 5xx raises `OllamaProtocolError`** — which the orchestrator turns into `TOOL_ERROR` |
 | `test_provider.py` | `build_llm()` — default and explicit `fake` give `FakeLLM`, `ollama` gives an `OllamaLLM` carrying `OLLAMA_BASE_URL` / `OLLAMA_MODEL`, an unknown value raises; `create_app()` builds the configured provider and an injected `llm=` still wins |
-| `test_factset.py` | projection from observations, `allowed_literals()`, `allowed_entities()` |
+| `test_factset.py` | projection from observations, and the four `allowed_*` helpers the checker compares against |
 | `test_grounding.py` | the checker, as above; sourced entity text not re-scanned; `TEMPLATE_SAFE_LITERALS` is numbers-only; every status enum member extractable |
 | `test_layering.py` | the dependency direction of ARCHITECTURE.md §3, parsed from the imports (ADR 0011); nothing below `pipeline/` imports it, nothing at all imports `api/`, `api/` reaches no tool and no guardrail, the orchestrator is where the three mutually-ignorant components meet, and `observability/` is a sink -- it imports no component and `tracing/` does not import it back |
 | `test_repository_contract.py` | **parametrised over both implementations**; the trace round-trip, and the SQLite-only `CHECK` backstop |

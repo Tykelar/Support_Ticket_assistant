@@ -1,22 +1,20 @@
 """Counters and histograms, held in an in-process registry, rendered as Prometheus text.
 
-**Every metric here is derived from a finished trace, not incremented inline.**
-`record_run` walks the same typed steps `GET /tickets/{id}` serves and updates the
-registry once, at the orchestrator's single write site
-([ADR 0014](../../../docs/adr/0014-metrics-derived-from-the-trace.md)). There is no
-instrumentation scattered through `_decide`, so a run and the numbers it produces cannot
-drift apart, and the arithmetic is testable: a known `FrozenClock` tick times a known
-number of steps is `pipeline_duration_seconds`.
+**Every metric is derived from a finished trace, not incremented inline.** `record_run`
+walks the same typed steps `GET /tickets/{id}` serves, once, at the orchestrator's single
+write site ([ADR 0014](../../../docs/adr/0014-metrics-derived-from-the-trace.md)). A run
+and the numbers it produces therefore cannot drift apart.
 
-No `prometheus_client` dependency. `Counter` and `Histogram` are a few lines each and
-`render()` emits the text exposition format directly. The registry is the seam a real
-client would attach at; swapping it is contained (OBSERVABILITY.md).
+No `prometheus_client` dependency: `Counter` and `Histogram` are a few lines each and
+`render()` emits the exposition format directly. The registry is the seam a real client
+would attach at.
 
-The families and what moves them are OBSERVABILITY.md's table. `handoffs_total{reason}` is
-the one that matters most -- each `HandoffReason` is produced at exactly one place in the
-orchestrator, so the breakdown is a real signal rather than a rough grouping.
+The families are OBSERVABILITY.md's table. `handoffs_total{reason}` matters most -- each
+`HandoffReason` is produced at one place in the orchestrator, so the breakdown is a real
+signal rather than a rough grouping.
 """
 
+import threading
 from collections.abc import Sequence
 
 from support_assistant.enums import HandoffReason, TicketStatus
@@ -28,12 +26,13 @@ from support_assistant.tracing.models import (
 )
 
 _DURATION_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
-"""Seconds. Wide enough to span the `FakeLLM` (single-digit milliseconds) and a real
-model (a second or more) without re-tuning."""
+"""Seconds. Wide enough to span `FakeLLM` (milliseconds) and a real model (a second or
+more) without re-tuning."""
 
-_ITERATION_BUCKETS = (1, 2, 3, 4, 5)
+_ITERATION_BUCKETS = (0, 1, 2, 3, 4, 5)
 """`FakeLLM` sits at 3; `MAX_ITERATIONS` is 5. The mass approaching the ceiling predicts
-cap handoffs before they happen (OBSERVABILITY.md)."""
+cap handoffs before they happen. Zero is its own bucket: a ticket handed off before the
+loop took no decisions, and counting it as one would say the loop ran."""
 
 
 def _escape(value: str) -> str:
@@ -50,17 +49,16 @@ def _labels(names: tuple[str, ...], values: tuple[str, ...]) -> str:
 
 
 def _fmt(value: float) -> str:
-    """`1` not `1.0`, `0.06` not `0.059999`. Bucket bounds and sums both go through here so
-    the rendered text is stable to assert on."""
+    """`1` not `1.0`, `0.06` not `0.059999`. Bounds and sums both go through here, so the
+    rendered text is stable to assert on."""
     number = float(value)
     return str(int(number)) if number.is_integer() else repr(number)
 
 
 class _Metric:
     """Name, help text, label names, and the two things every family does with them:
-    validate a label set against the declared names, and emit the `# HELP` / `# TYPE`
-    header. `Counter` and `Histogram` differ only in what they accumulate and how they
-    render the samples."""
+    validate a label set, and emit the `# HELP` / `# TYPE` header. `Counter` and
+    `Histogram` differ only in what they accumulate."""
 
     _TYPE: str
 
@@ -68,6 +66,9 @@ class _Metric:
         self.name = name
         self.documentation = documentation
         self._labelnames = tuple(labelnames)
+        self._lock = threading.Lock()
+        """`record_run` runs in the background threadpool, so two runs can update a family
+        at once and every update here is a read-modify-write."""
 
     def _key(self, labels: dict[str, str]) -> tuple[str, ...]:
         if set(labels) != set(self._labelnames):
@@ -86,9 +87,8 @@ class _Metric:
 class Counter(_Metric):
     """A monotonically increasing count, optionally sliced by a fixed set of labels.
 
-    A series is emitted only for a label combination that has actually been seen -- a
-    labelled counter with no data is a `# TYPE` line and nothing else, which is the honest
-    state before the first run.
+    A series is emitted only for a label combination actually seen, so a labelled counter
+    with no data is a `# TYPE` line and nothing else -- the honest state before a run.
     """
 
     _TYPE = "counter"
@@ -99,7 +99,8 @@ class Counter(_Metric):
 
     def inc(self, amount: int = 1, **labels: str) -> None:
         key = self._key(labels)
-        self._values[key] = self._values.get(key, 0) + amount
+        with self._lock:
+            self._values[key] = self._values.get(key, 0) + amount
 
     def render(self) -> str:
         lines = self._header()
@@ -133,10 +134,8 @@ class _Series:
 class Histogram(_Metric):
     """Observations bucketed by upper bound, plus a sum and a count.
 
-    Buckets render cumulatively with an `le` label, ending in `+Inf`, as the exposition
-    format requires. An unlabelled histogram always renders (zeros before any
-    observation), so the endpoint is self-describing; a labelled one renders a series per
-    combination seen.
+    Buckets render cumulatively with an `le` label, ending in `+Inf`. An unlabelled
+    histogram always renders, so the endpoint is self-describing before any run.
     """
 
     _TYPE = "histogram"
@@ -154,7 +153,8 @@ class Histogram(_Metric):
 
     def observe(self, value: float, **labels: str) -> None:
         key = self._key(labels)
-        self._series.setdefault(key, _Series(self._buckets)).observe(value)
+        with self._lock:
+            self._series.setdefault(key, _Series(self._buckets)).observe(value)
 
     def render(self) -> str:
         lines = self._header()
@@ -182,10 +182,10 @@ class Histogram(_Metric):
 class MetricRegistry:
     """The six families of OBSERVABILITY.md, and nothing else.
 
-    Injected, not reached for -- `run_pipeline` takes one and `GET /metrics` reads the one
-    `create_app` was handed, the same way `api/` already handles `TicketRepository`. The
-    module-level `REGISTRY` is the production default, exactly as `registry.run` and
-    `MAX_ITERATIONS` are defaults one layer down.
+    Injected, not reached for: `run_pipeline` requires one and `GET /metrics` reads the one
+    `create_app` was handed. `REGISTRY` below is the production default at exactly one
+    place and a default nowhere beneath it -- a pipeline that could fall back to the
+    singleton would write where nothing reads (PIPELINE.md).
     """
 
     def __init__(self) -> None:
@@ -242,11 +242,9 @@ def record_run(
 ) -> None:
     """Fold one finished run into the registry.
 
-    Called once by `run_pipeline`, **after** `repository.finalise` -- so a run whose
-    persist failed is not counted, which is the gap the stranded-ticket gauge
-    (deferred, OBSERVABILITY.md) exists to close. Total by construction: it only reads
-    closed enums and a closed set of trace step types, so it has nothing to raise on and
-    needs no guard around it at the call site.
+    Called once by `run_pipeline`, after `repository.finalise`, so a run whose persist
+    failed is not counted. Total by construction -- it reads only closed enums and a closed
+    set of step types, so it needs no guard at the call site.
     """
     registry.tickets_total.inc(status=status.value)
     if reason is not None:

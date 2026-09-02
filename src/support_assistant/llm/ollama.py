@@ -1,24 +1,20 @@
-"""`OllamaLLM` -- the optional real `LLMClient`, behind the identical interface as `FakeLLM`.
+"""`OllamaLLM` -- the optional real `LLMClient`, behind the same interface as `FakeLLM`.
 
-Off by default. Selected by `LLM_PROVIDER=ollama` (see [`provider.py`](provider.py)); a
-clean clone never needs a model server to run the service or pass the tests. It needs the
-`ollama` extra ([`pyproject.toml`](../../../pyproject.toml) -- `httpx`, which `[dev]` also
-pulls in), which is why `provider.py` imports this module **lazily**: nothing drags
-`httpx` onto the default `fake` path.
+Off by default, selected by `LLM_PROVIDER=ollama`. A clean clone never needs a model server
+to run the service or pass the tests. It needs the `ollama` extra, which is why
+`provider.py` imports this module lazily.
 
 It talks to a local Ollama server in **JSON mode** and validates the reply straight onto
-the domain types -- `TypeAdapter(Step)` for `decide_next_step`, `Classification` for
-`classify_intent`. Design and the fail-closed contract are in
-[ADR 0015](../../../docs/adr/0015-json-mode-over-the-tool-calling-api.md) and
-[LLM.md](LLM.md).
+the domain types
+([ADR 0015](../../../docs/adr/0015-json-mode-over-the-tool-calling-api.md), LLM.md).
 
-This module may import only `domain`, `enums` and `httpx` (ARCHITECTURE.md section 3;
-`tests/test_layering.py` parses the imports and fails on anything else). It therefore
-cannot read `tools/registry` -- the tool catalogue it shows the model is the hand-written
-`_TOOL_CATALOGUE` below, and the registry stays the enforcement point one layer down.
+It may import only `domain`, `enums` and `httpx` (ARCHITECTURE.md section 3), so it cannot
+read `tools/registry`: the catalogue it shows the model is `_TOOL_CATALOGUE` below, and the
+registry stays the enforcement point one layer down.
 """
 
 import json
+from typing import Any
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -33,13 +29,11 @@ from support_assistant.domain import (
 )
 
 DEFAULT_MODEL = "llama3.1"
-"""The model asked for when `OLLAMA_MODEL` is unset. Any model Ollama can run and that
-follows a JSON instruction works; the name is configuration, not architecture."""
+"""Used when `OLLAMA_MODEL` is unset. Any model that follows a JSON instruction works."""
 
 DEFAULT_TIMEOUT = 30.0
-"""Seconds per `/api/chat` call. A model server that hangs fails closed on this rather
-than holding the pipeline open. A bare ceiling only -- an adaptive timeout and a circuit
-breaker are roadmap (LLM.md)."""
+"""Seconds per `/api/chat` call, so a hanging model server fails closed rather than holding
+the pipeline open. A ceiling only -- adaptive timeouts are roadmap (LLM.md)."""
 
 _ENDPOINT = "/api/chat"
 
@@ -51,9 +45,8 @@ _TOOL_CATALOGUE = (
     "get_invoices(user_id): the user's invoices, newest first.\n"
     "get_charging_sessions(user_id): the user's charging sessions, newest first."
 )
-"""Hand-maintained: `llm/` may not import `tools/registry` (ARCHITECTURE.md section 3), so
-a fourth tool is a second edit here. Every call is still validated by the registry, so
-drift costs a `TOOL_ERROR` handoff, not a wrong reply (LLM.md, ROADMAP)."""
+"""Hand-maintained, because `llm/` may not import `tools/registry`. Every call is still
+validated by the registry, so drift costs a `TOOL_ERROR` handoff, not a wrong reply."""
 
 _CLASSIFY_SYSTEM = (
     "You classify EV-charging customer support tickets. Reply with a JSON object "
@@ -82,12 +75,11 @@ _DECIDE_SYSTEM = (
 
 
 class OllamaProtocolError(RuntimeError):
-    """The model server did not return a well-formed answer -- a transport or HTTP
-    failure, non-JSON content, or JSON that does not match `Step` / `Intent`.
+    """The model server did not return a well-formed answer -- a transport or HTTP failure,
+    non-JSON content, or JSON that does not match `Step` / `Intent`.
 
-    The orchestrator's catch-all turns this into a `TOOL_ERROR` handoff (ADR 0005), so a
-    broken or absent model server behaves like any other tool failure: the run stays
-    bounded and is handed off, never left in `processing`.
+    The orchestrator's catch-all turns this into a `TOOL_ERROR` handoff, so a broken model
+    server behaves like any other tool failure (ADR 0005).
     """
 
 
@@ -102,10 +94,9 @@ class OllamaLLM:
         timeout: float = DEFAULT_TIMEOUT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        """`base_url` is explicit, like `SqliteTicketRepository`'s `path` -- the provider
-        factory supplies the configured one. `transport` is the seam `tests/test_ollama.py`
-        uses to stand in for a live server; production leaves it `None`. Nothing here opens
-        a connection.
+        """`base_url` is explicit; the provider factory supplies the configured one.
+        `transport` is the seam the tests use to stand in for a live server. Nothing here
+        opens a connection.
         """
         self.base_url = base_url
         self.model = model
@@ -116,10 +107,9 @@ class OllamaLLM:
 
     def classify_intent(self, ticket: Ticket) -> Classification:
         """One of `Intent`'s values, with no evidence: `matched_keywords` is meaningless
-        for a real model and an empty tuple says so honestly (ADR 0012).
+        for a real model (ADR 0012).
 
-        A well-formed `"unknown"` is returned as-is -- the orchestrator hands it off as
-        `UNSUPPORTED_INTENT`. A value outside the enum is an `OllamaProtocolError`.
+        A well-formed `"unknown"` is returned as-is; a value outside the enum raises.
         """
         answer = self._chat(
             [
@@ -135,9 +125,8 @@ class OllamaLLM:
             ) from exc
 
     def decide_next_step(self, ticket: Ticket, history: list[Observation]) -> Step:
-        """Map the model's reply onto `ToolCall | Reply | Handoff` directly (that is why
-        the return type *is* the union). A `Reply` names one of the five templates only;
-        projecting the `FactSet` and rendering stay the orchestrator's job (LLM.md).
+        """Map the model's reply onto `ToolCall | Reply | Handoff` directly. A `Reply`
+        names a template only; projecting and rendering stay the orchestrator's job.
         """
         answer = self._chat(
             [
@@ -154,16 +143,12 @@ class OllamaLLM:
 
     # -- HTTP ------------------------------------------------------------------------
 
-    def _chat(self, messages: list[dict[str, str]]) -> dict:
-        """One `/api/chat` round trip in JSON mode; returns the parsed `message.content`
-        object.
+    def _chat(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        """One `/api/chat` round trip in JSON mode; returns the parsed `message.content`.
 
-        Every way this can fail to hand back a well-formed object -- a transport or timeout
-        error, a non-2xx status, a body that is not JSON, a missing `message.content`,
-        content that is not JSON despite JSON mode, or a JSON value that is not an object
-        -- is one `OllamaProtocolError`. The orchestrator maps them all to a single
-        `TOOL_ERROR` handoff (ADR 0015), so one exception with a message that names the
-        cause is the whole contract; a type per cause would only be collapsed again.
+        Every way this can fail to hand back a well-formed object is one
+        `OllamaProtocolError`. They all become the same `TOOL_ERROR` handoff, so a type per
+        cause would only be collapsed again (ADR 0015).
         """
         payload = {
             "model": self.model,

@@ -1,26 +1,19 @@
 """Structured logs: one JSON object per line, one line per pipeline step, always carrying
 `ticket_id`.
 
-**Logs and traces are not the same record and do not serve the same reader**
-(OBSERVABILITY.md). The trace answers "why did the AI say this?" for a support agent and
-is served over the API; the log answers "what is the system doing?" for an engineer and
-goes to an aggregator. The overlap is deliberate -- the trace is written atomically at the
-end of a run, so a process that dies mid-run leaves the log as the only evidence of what
-happened.
+**Logs and traces are different records for different readers** (OBSERVABILITY.md). The
+trace answers "why did the AI say this?" for a support agent and is served over the API;
+the log answers "what is the system doing?" for an engineer. The overlap is deliberate --
+the trace is written atomically at the end of a run, so a process that dies mid-run leaves
+the log as the only evidence.
 
-The log line is produced from a real, recorded trace step via `log_step`, wired as
-`TraceRecorder`'s `on_step` hook by the orchestrator. The recorder does not import this
-module -- the hook is injected -- so `tracing/` stays below `observability/` in the
-dependency graph (ARCHITECTURE.md section 3).
+`log_step` is wired as `TraceRecorder`'s `on_step` hook by the orchestrator. The hook is
+injected rather than imported, so `tracing/` stays below `observability/`
+(ARCHITECTURE.md section 3).
 
-`ts` on a step log is the step's own `ts`, taken from the injected `Clock` -- no wall
-clock is read here, so ADR 0008's grep guard stays green and a step log is as reproducible
-as the trace step it mirrors. `log_step` always supplies it; the formatter reads the
-stdlib clock only if some stray record without a step `ts` ever reaches this handler.
-
-Ticket `subject` and `body` are never logged: customer text of unknown sensitivity,
-already stored with the ticket, and copying it into an aggregator widens exposure for no
-diagnostic gain.
+A step log's `ts` is the step's own, from the injected `Clock` -- no wall clock is read
+here (ADR 0008). Ticket `subject` and `body` are never logged: customer text is already
+stored with the ticket, and copying it to an aggregator widens exposure for no gain.
 """
 
 import json
@@ -41,17 +34,15 @@ from support_assistant.tracing.models import (
 
 _LOGGER = logging.getLogger("support_assistant")
 _LOGGER.addHandler(logging.NullHandler())
-"""Silent until `configure_logging` runs, so importing this package never writes anything
-and the test suite stays quiet unless a test opts in."""
+"""Silent until `configure_logging` runs, so importing the package writes nothing."""
 
 _ticket_id: ContextVar[str | None] = ContextVar("support_assistant_ticket_id", default=None)
 
 
 @contextmanager
 def ticket_scope(ticket_id: str) -> Iterator[None]:
-    """Bind `ticket_id` for the duration of one run, so every step log inside carries it
-    without the call sites having to pass it. Reset on exit, including on an exception, so
-    a `ticket_id` never leaks into a later run's logs."""
+    """Bind `ticket_id` for one run, so every step log inside carries it without the call
+    sites passing it. Reset on exit, including on an exception."""
     token = _ticket_id.set(ticket_id)
     try:
         yield
@@ -98,12 +89,10 @@ def log_step(step: TraceStep) -> None:
 def _describe(step: TraceStep) -> tuple[str, int, dict[str, object]]:
     """A trace step as (event name, level, fields).
 
-    The default is the step's own `type` and its own model fields (the transform
-    `api/schemas.py` serves the trace with). Only the three cases where the log
-    deliberately diverges from the trace carry explicit code: a failed tool result and a
-    failed grounding check drop their payload, and a handoff is renamed and reduced to its
-    reason. Those three -- and a withheld reply -- log at `warning`; everything else at
-    `info`. A step type with no case here still logs, generically.
+    The default is the step's own `type` and model fields. Only the three cases where the
+    log diverges from the trace carry code: a failed tool result and a failed grounding
+    check drop their payload, and a handoff is renamed and reduced to its reason. Those
+    log at `warning`, everything else at `info`, and an uncased step type still logs.
     """
     fields = step.model_dump(mode="json", exclude={"seq", "ts", "type"}, exclude_none=True)
     if isinstance(step, ToolResultStep):
@@ -129,12 +118,10 @@ _configured = False
 
 
 def configure_logging(level: str | int | None = None) -> None:
-    """Attach the JSON handler to the `support_assistant` logger. Idempotent -- called
-    once from the app lifespan, and a no-op every time after.
+    """Attach the JSON handler to the `support_assistant` logger. Idempotent.
 
-    `propagate` is turned off so the running service does not also emit each line through
-    whatever root handler uvicorn installed. Level defaults to `LOG_LEVEL` from the
-    environment (PACKAGING.md), then `info`.
+    `propagate` is off so the service does not also emit each line through uvicorn's root
+    handler. Level comes from `LOG_LEVEL` (PACKAGING.md), then `info`.
     """
     global _configured
     if _configured:

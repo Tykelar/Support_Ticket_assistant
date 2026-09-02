@@ -1,17 +1,15 @@
-"""Operational endpoints. Not part of the brief's contract; they make the service
-operable.
+"""Operational endpoints. Not part of the brief's contract; they make the service operable.
 
-`GET /health` **touches the database**. A health check that only proves the process is
-running is worse than none: the container reports healthy, the load balancer keeps sending
-traffic, and every request fails on a database that is gone. So the check asks the
-repository a real question and reports `503` when it cannot answer -- which is what makes
-the `HEALTHCHECK` in [PACKAGING.md](../../../deploy/PACKAGING.md) mean something.
+`GET /health` **touches the database**. A check that only proves the process is running is
+worse than none: the container reports healthy, the load balancer keeps sending traffic,
+and every request fails on a database that is gone. So it asks the repository a real
+question and reports `503` when it cannot answer, which is what makes the `HEALTHCHECK` in
+[PACKAGING.md](../../../deploy/PACKAGING.md) mean something.
 
-`GET /metrics` renders the in-process `MetricRegistry` as Prometheus text. The families
-are defined in [OBSERVABILITY.md](../observability/OBSERVABILITY.md) and populated by
-`record_run` at the end of every pipeline run. The endpoint is always present and always
-names its metrics; only the sample lines wait for the first run, so a scrape is never an
-empty body a dashboard could read as "nothing is wrong".
+`GET /metrics` renders the in-process `MetricRegistry` as Prometheus text
+([OBSERVABILITY.md](../observability/OBSERVABILITY.md)). It always names its families and
+only the sample lines wait for the first run, so a scrape is never an empty body a
+dashboard could read as "nothing is wrong".
 """
 
 from fastapi import APIRouter, Response, status
@@ -26,8 +24,8 @@ _PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 """The exposition-format content type a Prometheus scraper expects."""
 
 _PROBE_ID = "t_00000000000000000000000000000000"
-"""The id the health check asks about. Whether it exists is irrelevant and is not
-asserted: the question is whether the store answers at all."""
+"""The id the health check asks about. Whether it exists is not asserted: the question is
+whether the store answers at all."""
 
 
 @router.get(
@@ -38,16 +36,14 @@ asserted: the question is whether the store answers at all."""
 )
 def health(repository: Repository, response: Response) -> Health:
     """The status code is set on the injected `Response` rather than by returning a
-    `JSONResponse`, so the body still goes out through `response_model=Health` above. A
-    hand-built response would bypass that model, leaving the declaration decorative and
-    the two states unchecked."""
+    `JSONResponse`, so the body still goes out through `response_model=Health`. A
+    hand-built response would bypass that model and leave the two states unchecked."""
     try:
         repository.get(_PROBE_ID)
     except Exception:
-        # Deliberately broad. Every way storage can fail -- a missing file, a locked
-        # database, a corrupt page -- means the same thing to whoever reads this: do not
-        # send traffic here. Narrowing it to sqlite3 errors would also tie an operational
-        # endpoint to which repository implementation is wired in.
+        # Deliberately broad: every way storage can fail means the same thing to whoever
+        # reads this. Narrowing to sqlite3 errors would also tie this endpoint to which
+        # repository is wired in.
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return Health(status="unavailable")
     return Health(status="ok")
@@ -59,7 +55,7 @@ def health(repository: Repository, response: Response) -> Health:
     summary="The in-process counters and histograms, as Prometheus text",
 )
 def metrics(registry: Metrics) -> PlainTextResponse:
-    """The registry `create_app` built and the pipeline writes to, rendered on demand.
-    Unauthenticated, like everything else -- it exposes ticket volumes and the handoff
-    breakdown to anyone who asks (API.md's security note)."""
+    """The registry `create_app` built and the pipeline writes to. Unauthenticated, like
+    everything else -- it exposes ticket volumes and the handoff breakdown to anyone who
+    asks (API.md)."""
     return PlainTextResponse(registry.render(), media_type=_PROMETHEUS_CONTENT_TYPE)

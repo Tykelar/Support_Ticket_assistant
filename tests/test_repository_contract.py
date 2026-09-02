@@ -403,3 +403,32 @@ def test_the_database_refuses_a_handed_off_ticket_that_carries_a_reply(tmp_path)
         )
 
     repository.close()
+
+
+def test_a_check_violation_on_create_is_not_reported_as_a_duplicate_id(tmp_path) -> None:
+    """SQLite raises `IntegrityError` for the primary key *and* for the `CHECK`. Reporting
+    both as `TicketAlreadyExists` would make the backstop name the wrong fault in exactly
+    the case it exists for -- a code path that forgot ADR 0005's invariant.
+
+    `model_construct` is what gets past `Ticket`'s own validator, which is the only reason
+    the constraint is otherwise unreachable through `create`.
+    """
+    repository = SqliteTicketRepository(tmp_path / "tickets.db", FrozenClock())
+    handed_off_with_a_reply = Ticket.model_construct(
+        id=new_ticket_id(),
+        user_id="u_002",
+        subject="s",
+        body="b",
+        status=TicketStatus.HANDED_OFF,
+        reply="a reply that should not exist",
+        handoff_reason=None,
+        created_at=DEFAULT_START,
+        updated_at=DEFAULT_START,
+        trace=[],
+    )
+
+    with pytest.raises(sqlite3.IntegrityError) as caught:
+        repository.create(handed_off_with_a_reply)
+    assert "CHECK constraint failed" in str(caught.value)
+
+    repository.close()

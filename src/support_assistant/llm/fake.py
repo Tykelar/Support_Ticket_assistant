@@ -1,16 +1,14 @@
 """`FakeLLM` -- the default `LLMClient`. Deterministic: no clock, no randomness, no
 network, so the same ticket always produces the same trace (ADR 0006).
 
-Intent is case-insensitive keyword matching over `subject + body`, scored by the number
-of *distinct* keywords each category hits; a tie -- including nothing matched -- resolves
-to `Intent.UNKNOWN`, which the pipeline hands off. Keyword matching is brittle by design
-and is not defended as good classification (LLM.md non-goal); it is a deterministic
-stand-in so the loop and the guardrails can be evaluated without a model in the way.
+Intent is case-insensitive keyword matching over `subject + body`, scored by distinct
+keywords hit; a tie, including nothing matched, is `Intent.UNKNOWN`. Keyword matching is
+brittle by design and is not defended as good classification (LLM.md) -- it is a
+deterministic stand-in so the loop and the guardrails can be evaluated on their own.
 
-The step decision is a small state machine over the history: fetch the user, then the
-intent's data tool, then reply with the template the gathered statuses imply. It
-terminates in at most three iterations and never returns `Handoff` -- that outcome exists
-in the union for a real model and for the pipeline to handle, not for the fake to reach.
+The step decision is a state machine over the history: fetch the user, then the intent's
+data tool, then reply with the template the gathered statuses imply. At most three
+iterations, and never `Handoff` -- that exists for a real model, not for the fake.
 """
 
 import re
@@ -61,14 +59,12 @@ class FakeLLM:
     def classify_intent(self, ticket: Ticket) -> Classification:
         """The intent, and the keywords that produced it.
 
-        The evidence is the *winning* category's hits only. Listing the loser's as
-        well would make the `intent_classified` step argue for a classification the
-        fake did not make, and an `unknown` outcome -- nothing matched, or a tie --
-        has no evidence *for* it at all (ADR 0012).
+        The evidence is the winning category's hits only: listing the loser's would make
+        the `intent_classified` step argue for a classification the fake did not make, and
+        an `unknown` outcome has no evidence for it at all (ADR 0012).
 
-        Sorted and de-duplicated, so the same ticket produces the same trace byte for
-        byte (ADR 0006). De-duplication is also what makes the score a count of
-        *distinct* keywords, which is the scoring rule LLM.md states.
+        Sorted and de-duplicated, so the same ticket produces the same trace byte for byte,
+        and so the score counts *distinct* keywords.
         """
         text = f"{ticket.subject}\n{ticket.body}".lower()
         billing = sorted(set(_BILLING.findall(text)))
@@ -105,8 +101,7 @@ class FakeLLM:
     @staticmethod
     def _tool_call(tool: str, user_id: str) -> ToolCall:
         """Build a call, checking the name against the registry so the registry stays the
-        single source of truth for tool names (a fourth tool is one entry there plus one
-        in `_DATA_TOOL`, not a hunt for hard-coded strings)."""
+        single source of truth for tool names."""
         if tool not in registry.registered():
             raise RuntimeError(f"FakeLLM would call unregistered tool {tool!r}")
         return ToolCall(tool=tool, args={"user_id": user_id})

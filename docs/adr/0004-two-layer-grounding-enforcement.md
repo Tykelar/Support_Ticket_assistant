@@ -93,8 +93,9 @@ Two consequences worth stating plainly:
   that method; the checker does not use it. It compares numbers as `Decimal` through
   `allowed_numbers()`, and identifiers and status words through `allowed_identifiers()`
   and `allowed_statuses()` — stricter than a string-set membership test, since `42.1` and
-  `42.10` are one fact. `allowed_literals()` remains the whole-facts view for a reader, a
-  test or a debugging session.
+  `42.10` are one fact. `allowed_literals()` was kept for a while as a whole-facts view for
+  readers and tests, then removed: a second allowlist that the checker did not consult was
+  a thing to mis-trust, not a convenience.
 - **`TEMPLATE_SAFE_LITERALS` is a numbers allowlist only.** The Decision describes it for
   static prose numbers, and that is exactly where it applies: it is never unioned into the
   identifier or status vocabularies, so a template cannot use it to whitelist `failed`.

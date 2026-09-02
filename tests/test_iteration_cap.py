@@ -33,6 +33,7 @@ from support_assistant.domain import (
     new_ticket_id,
 )
 from support_assistant.guardrails.limits import MAX_ITERATIONS
+from support_assistant.observability.metrics import MetricRegistry
 from support_assistant.pipeline.orchestrator import run_pipeline
 from support_assistant.storage.memory import InMemoryTicketRepository
 from support_assistant.tracing.models import LLMDecision
@@ -74,6 +75,7 @@ def test_runaway_loop_hits_cap() -> None:
         repository=repository,
         llm=RunawayLLM(),
         clock=FrozenClock(),
+        metrics=MetricRegistry(),
     )
 
     stored = repository.get(ticket.id)

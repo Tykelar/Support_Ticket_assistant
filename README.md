@@ -80,7 +80,7 @@ Each component's documentation lives with its code:
 | Packaging | [deploy/PACKAGING.md](deploy/PACKAGING.md) |
 | Deferred work, and how | [docs/ROADMAP.md](docs/ROADMAP.md) |
 
-Component docs say **what** and **how**; the nine ADRs in [docs/adr/](docs/adr/) say
+Component docs say **what** and **how**; the fifteen ADRs in [docs/adr/](docs/adr/) say
 **why**, once, and are linked from wherever the decision shows up. Vocabulary is in
 [CONTEXT.md](CONTEXT.md), and everything deliberately left out — with how it would be
 built — is in [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -204,7 +204,7 @@ Detail: [OBSERVABILITY.md](src/support_assistant/observability/OBSERVABILITY.md)
 
 ## What I would change with more time
 
-The short version; **[docs/ROADMAP.md](docs/ROADMAP.md) is the long one** — fourteen
+The short version; **[docs/ROADMAP.md](docs/ROADMAP.md) is the long one** — fifteen
 entries, each with why it was deferred and concretely how it would be built.
 
 **First, capture the feedback loop.** Every metric this system emits measures whether it
@@ -258,7 +258,7 @@ Per the brief's disclosure requirement.
 
 - **As an interviewer, before any code.** The design decisions above were reached by
   being pushed on them — sync vs async, whether the iteration cap guards anything real,
-  whether structural grounding survives a real model. The twelve ADRs are the record of
+  whether structural grounding survives a real model. The fifteen ADRs are the record of
   those arguments, including the alternatives that were rejected and why.
 - **As a drafting tool** for documentation and implementation, reviewed and edited by
   hand.

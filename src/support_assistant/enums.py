@@ -1,25 +1,22 @@
 """The enumerations the whole system agrees on (ARCHITECTURE.md section 4).
 
-These sit below everything else on purpose. A `Ticket` carries its trace, and a trace
-step names an `Intent` and a `TicketStatus` -- so if the enums lived with the ticket,
-`domain` and `tracing.models` would import each other. They are the one layer both can
-depend on, and the reason `HandoffReason` and `LiteralClass` live here rather than beside
-the code that raises them
+They sit below everything else because a `Ticket` carries its trace and a trace step names
+an `Intent` -- if the enums lived with the ticket, `domain` and `tracing.models` would
+import each other
 ([ADR 0011](../../docs/adr/0011-shared-vocabulary-below-the-components.md)).
 
-Import them from `support_assistant.domain`, which re-exports them as part of the domain
-vocabulary; this module exists to fix the layering, not to be a second front door.
+Import them from `support_assistant.domain`, which re-exports them. This module exists to
+fix the layering, not to be a second front door.
 """
 
 from enum import StrEnum
 
 
 class Intent(StrEnum):
-    """The kind of question a ticket is asking, as classified by the pipeline.
+    """The kind of question a ticket is asking.
 
-    Exactly the brief's categories. `unknown` is a handoff trigger, not a category to
-    serve: guessing between two templates is the confident-and-wrong behaviour the
-    system exists to avoid.
+    `unknown` is a handoff trigger, not a category to serve: guessing between two
+    templates is the confident-and-wrong behaviour the system exists to avoid.
     """
 
     BILLING_QUESTION = "billing_question"
@@ -38,10 +35,9 @@ class TicketStatus(StrEnum):
 class ReplyTemplate(StrEnum):
     """The reply the pipeline renders, chosen by the LLM from the data it gathered.
 
-    A closed vocabulary, beside `Intent`, because two components key on it: the LLM picks
-    one (`Reply.template`), and grounding layer 2 looks up that template's
-    `TEMPLATE_SAFE_LITERALS` when it verifies the rendered text (LLM.md, GUARDRAILS.md).
-    The prose and the per-template safe-literal lists live in `llm/templates.py`.
+    Closed because two components key on it: the LLM picks one, and grounding layer 2
+    looks up that template's `TEMPLATE_SAFE_LITERALS`. The prose lives in
+    `llm/templates.py`.
     """
 
     BILLING_ALL_PAID = "billing_all_paid"
@@ -52,11 +48,8 @@ class ReplyTemplate(StrEnum):
 
 
 class SessionStatus(StrEnum):
-    """How a charging session ended.
-
-    A closed vocabulary rather than free text, so status words enter the FactSet as facts
-    and grounding layer 2 can check them (ADR 0004).
-    """
+    """How a charging session ended. Closed rather than free text, so status words enter
+    the FactSet as facts and grounding layer 2 can check them (ADR 0004)."""
 
     COMPLETED = "completed"
     INTERRUPTED = "interrupted"
@@ -72,12 +65,11 @@ class InvoiceStatus(StrEnum):
 
 
 class HandoffReason(StrEnum):
-    """Why a ticket was handed to a human. See ARCHITECTURE.md section 4.
+    """Why a ticket was handed to a human (ARCHITECTURE.md section 4).
 
-    The closed set of explanations, and one of the contracts fixed across the system.
     Every handoff carries exactly one, and each is produced at exactly one place in the
-    orchestrator -- which is what makes handoff-rate-by-reason a trustworthy signal rather
-    than a rough grouping (GUARDRAILS.md, OBSERVABILITY.md).
+    orchestrator -- which is what makes handoff-rate-by-reason a real signal rather than a
+    rough grouping (OBSERVABILITY.md).
     """
 
     USER_NOT_FOUND = "USER_NOT_FOUND"
@@ -102,10 +94,10 @@ class HandoffReason(StrEnum):
 class LiteralClass(StrEnum):
     """How a factual literal in a reply was extracted by grounding layer 2.
 
-    Closed for the same reason as `SessionStatus`, and named by two components: the
-    checker tags each extracted literal with one, and `Violation` carries it into the
-    trace as the `class` key TRACEABILITY.md documents. Semantic grounding would add a
-    fourth, `contradiction` ([ROADMAP](../../docs/ROADMAP.md#semantic-grounding)).
+    The checker tags each extracted literal with one, and `Violation` carries it into the
+    trace as the `class` key. Semantic grounding would add a fourth, `contradiction`
+    ([ROADMAP](../../docs/ROADMAP.md#semantic-grounding)) -- `verify` treats a class it has
+    no rule for as ungrounded.
     """
 
     NUMBER = "number"

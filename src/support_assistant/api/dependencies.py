@@ -1,13 +1,11 @@
-"""What a request handler is given: the repository, the LLM client, and the clock.
+"""What a request handler is given: the repository, the LLM client, the clock, the metrics.
 
-They live on `app.state`, put there by the lifespan in `app.py`, and are read back through
-`Depends` so a handler receives them **typed as their protocols** rather than reaching into
-untyped application state itself. That is the whole reason this module exists: `api/`
-should not be able to tell a `SqliteTicketRepository` from an `InMemoryTicketRepository`,
-and a signature that says `TicketRepository` is what keeps it honest.
+They live on `app.state`, put there by the lifespan, and are read back through `Depends` so
+a handler receives them **typed as their protocols** rather than reaching into untyped
+state. That is the reason this module exists: `api/` should not be able to tell a
+`SqliteTicketRepository` from an `InMemoryTicketRepository`.
 
-Nothing is constructed here. Wiring is `create_app`'s job, once per application, so a test
-injects its own three and the production defaults live in exactly one place.
+Nothing is constructed here -- wiring is `create_app`'s job, once per application.
 """
 
 from typing import Annotated
@@ -42,5 +40,4 @@ Time = Annotated[Clock, Depends(get_clock)]
 """Named `Time` rather than `Clock` so the alias does not shadow the protocol it wraps."""
 Metrics = Annotated[MetricRegistry, Depends(get_metrics)]
 """The one registry the process shares: `POST /tickets` hands it to the background run,
-`GET /metrics` renders it. Read here as a dependency so neither handler reaches into
-`app.state` itself."""
+`GET /metrics` renders it."""

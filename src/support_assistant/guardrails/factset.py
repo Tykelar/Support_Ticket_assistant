@@ -1,13 +1,12 @@
 """Grounding layer 1 -- tool results projected into a typed `FactSet`.
 
-Templates interpolate **only** from a `FactSet` (`llm/templates.py`), so under `FakeLLM`
-there is no code path from a reply to a value no tool returned (GUARDRAILS.md section 3,
-[ADR 0004](../../../docs/adr/0004-two-layer-grounding-enforcement.md)).
+Templates interpolate **only** from a `FactSet`, so under `FakeLLM` there is no code path
+from a reply to a value no tool returned
+([ADR 0004](../../../docs/adr/0004-two-layer-grounding-enforcement.md)).
 
 The projection is deliberately lossy. It keeps names, identifiers, amounts, currencies,
-status words and counts; it **drops** issue/start dates, plan tier and language. A reply
-must never state those, and layer 2's numeric scan would pick an ISO date apart into
-ungrounded digits -- not carrying them is the layer-1 guarantee for those fields.
+status words and counts; it **drops** dates, plan tier and language. A reply must never
+state those, and not carrying them is the layer-1 guarantee.
 
 `guardrails/` may import `domain` but not `llm/` or `tools/` (ARCHITECTURE.md section 3).
 """
@@ -17,13 +16,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
-from support_assistant.domain import (
-    ChargingSession,
-    Invoice,
-    Observation,
-    User,
-    format_amount,
-)
+from support_assistant.domain import ChargingSession, Invoice, Observation, User
 from support_assistant.enums import InvoiceStatus, SessionStatus
 
 
@@ -53,8 +46,10 @@ class SessionFact(BaseModel):
 class FactSet(BaseModel):
     """The complete set of facts a reply may be built from (CONTEXT.md's *fact set*).
 
-    Frozen: the projection happens once, from the history, and is then read-only for the
-    rest of the run.
+    Frozen: projected once from the history, then read-only for the rest of the run.
+
+    The four `allowed_*` helpers below are what `GroundingChecker.verify` compares
+    against -- one per literal class, because numbers have to compare as `Decimal`.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -66,8 +61,8 @@ class FactSet(BaseModel):
 
     @classmethod
     def from_observations(cls, history: Iterable[Observation]) -> "FactSet":
-        """Project every `ToolResult` in the history into facts, preserving the loaders'
-        newest-first order so a template can cite `sessions[0]` as the most recent one."""
+        """Project every `ToolResult` in the history into facts, keeping the loaders'
+        newest-first order so a template can cite `sessions[0]` as the most recent."""
         user_name: str | None = None
         user_id: str | None = None
         invoices: list[InvoiceFact] = []
@@ -105,55 +100,9 @@ class FactSet(BaseModel):
             sessions=tuple(sessions),
         )
 
-    def allowed_literals(self) -> set[str]:
-        """Every fact as text -- what a reader, a test, or a debugging session sees as
-        "the things this reply is allowed to say".
-
-        Not what the checker compares against: it goes per class through the typed helpers
-        below, which is stricter, because numbers have to compare as `Decimal` rather than
-        as strings. This view is broader in the other direction too -- it carries the
-        currency and the name tokens, which no helper does.
-        """
-        literals: set[str] = set()
-
-        if self.user_name:
-            literals.add(self.user_name)
-            literals.update(self.user_name.split())
-        if self.user_id:
-            literals.add(self.user_id)
-
-        for invoice in self.invoices:
-            literals.update(
-                {
-                    invoice.invoice_id,
-                    invoice.currency,
-                    invoice.status.value,
-                    format_amount(invoice.amount),
-                }
-            )
-        for session in self.sessions:
-            literals.update(
-                {
-                    session.session_id,
-                    session.status.value,
-                    format_amount(session.kwh),
-                    format_amount(session.cost),
-                    session.station,
-                }
-            )
-            literals.update(session.station.split())
-
-        if self.invoices:
-            literals.add(str(len(self.invoices)))
-        if self.sessions:
-            literals.add(str(len(self.sessions)))
-
-        return literals
-
     def allowed_numbers(self) -> set[Decimal]:
-        """Numeric facts as `Decimal`, so `42.10`, `42,10` and `42.1` all compare equal.
-        Includes the row counts as numbers a reply may state ("all 3 of your invoices").
-        """
+        """Numeric facts as `Decimal`, so `42.10`, `42,10` and `42.1` compare equal.
+        Includes the row counts ("all 3 of your invoices")."""
         numbers: set[Decimal] = set()
         for invoice in self.invoices:
             numbers.add(invoice.amount)
@@ -178,11 +127,9 @@ class FactSet(BaseModel):
         """The open-vocabulary strings that are nonetheless facts: station names and the
         user's name.
 
-        Layer 2 cannot verify these -- extracting arbitrary entities from free text is the
-        least reliable part of any such checker (ADR 0004) -- but it can recognise the ones
-        it already sourced and stop re-reading them as something else. A station called
-        `A1 Norte` holds a digit that is not an amount, and one called `Completed Street`
-        holds a word that is not a status. Whole spans, exactly as the tool returned them.
+        Layer 2 cannot verify these (ADR 0004), but it can recognise the ones it already
+        sourced and stop re-reading them as something else: a station called `A1 Norte`
+        holds a digit that is not an amount. Whole spans, as the tool returned them.
         """
         entities = {session.station for session in self.sessions}
         if self.user_name:

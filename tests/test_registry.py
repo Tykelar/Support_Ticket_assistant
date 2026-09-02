@@ -11,9 +11,11 @@ from decimal import Decimal
 
 import pytest
 
-from support_assistant.domain import Invoice, ToolResult, User
+from support_assistant.domain import Invoice, Observation, ToolCall, ToolResult, User
+from support_assistant.guardrails.factset import FactSet
 from support_assistant.tools import registry
 from support_assistant.tools.errors import ToolExecutionError, UserNotFound
+from support_assistant.tracing.summarise import summarise
 
 # --------------------------------------------------------------------------------------
 # The happy path -- a tool's return value, wrapped uniformly.
@@ -102,3 +104,27 @@ def test_a_loaders_tool_error_propagates_with_its_locator() -> None:
 def test_run_takes_only_a_name_and_args() -> None:
     # Pins the decision structurally: no TraceRecorder parameter, no Clock parameter.
     assert list(inspect.signature(registry.run).parameters) == ["name", "args"]
+
+
+# --------------------------------------------------------------------------------------
+# Every registered tool survives the whole downstream path
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tool", registry.registered())
+def test_every_registered_tool_is_summarised_and_projected(tool: str) -> None:
+    """Dispatch is not the whole contract. `tracing/` needs a summariser for each tool and
+    `guardrails/` needs a projection branch, and both live in other packages: a missing
+    summariser raises only at runtime, a missing branch is silent and withholds the reply.
+
+    The same coverage `test_templates.py` gives every `ReplyTemplate`.
+    """
+    result = registry.run(tool, {"user_id": "u_002"})
+
+    summarise(result)  # raises if tracing/ has no rule for this tool
+    observation = Observation(
+        step=ToolCall(tool=tool, args={"user_id": "u_002"}), result=result
+    )
+    assert FactSet.from_observations([observation]) != FactSet(), (
+        f"{tool}'s records reach no FactSet branch"
+    )

@@ -34,15 +34,10 @@ class SystemClock:
 class FrozenClock:
     """A deterministic clock that advances a fixed tick on every reading.
 
-    Used by the suite. The advancing tick is the part worth arguing about: a frozen
-    *constant* clock would also be deterministic and is simpler, but it makes every
-    duration zero -- so `pipeline_duration_seconds` ships untested -- and, more subtly,
-    it makes two steps recorded out of order invisible. Identical timestamps hide the
-    bug that timestamps exist to reveal.
-
-    Advancing keeps full determinism, since the same run produces the same timestamps
-    every time, while making durations exact arithmetic: a known tick times a known
-    number of steps.
+    Advancing rather than constant: a constant clock makes every duration zero, so
+    `pipeline_duration_seconds` would ship untested, and identical timestamps hide two
+    steps recorded out of order. Advancing keeps determinism and makes durations exact
+    arithmetic -- a known tick times a known number of steps.
 
     The first reading is `start`; each subsequent one is a tick later.
     """

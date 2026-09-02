@@ -30,14 +30,17 @@ from support_assistant.domain import (
     Ticket,
     TicketStatus,
     ToolCall,
+    ToolResult,
     new_ticket_id,
 )
 from support_assistant.guardrails.limits import MAX_ITERATIONS
 from support_assistant.llm import templates
 from support_assistant.llm.fake import FakeLLM
 from support_assistant.llm.protocol import LLMClient
-from support_assistant.pipeline.orchestrator import run_pipeline
+from support_assistant.observability.metrics import REGISTRY, MetricRegistry
+from support_assistant.pipeline.orchestrator import ToolRunner, run_pipeline
 from support_assistant.storage.memory import InMemoryTicketRepository
+from support_assistant.tools import registry
 from support_assistant.tracing.models import (
     FinalDecision,
     GroundingCheck,
@@ -129,12 +132,19 @@ def _run(
     llm: LLMClient | None = None,
     resolve_template: Callable[[ReplyTemplate], templates.Template] = templates.spec_for,
     max_iterations: int = MAX_ITERATIONS,
+    metrics: MetricRegistry | None = None,
+    tools: ToolRunner = registry.run,
 ) -> Ticket:
     """Create a ticket, run the pipeline over it, and read back what was persisted.
 
     Reading back rather than asserting on the recorder is deliberate: a terminal state
     the repository never saw would pass every in-memory assertion and still strand the
     ticket.
+
+    A fresh `MetricRegistry` per run unless one is passed. Not a detail: these runs used
+    to take `run_pipeline`'s old module-level default and count into the process-wide
+    `REGISTRY`, so a whole file's tests silently coloured the object `GET /metrics`
+    serves -- the exact leak `metrics.py` claims tests avoid by injecting their own.
     """
     repository = InMemoryTicketRepository(FrozenClock())
     ticket = _ticket(user_id, *text)
@@ -147,6 +157,8 @@ def _run(
         clock=FrozenClock(),
         resolve_template=resolve_template,
         max_iterations=max_iterations,
+        metrics=metrics if metrics is not None else MetricRegistry(),
+        tools=tools,
     )
 
     stored = repository.get(ticket.id)
@@ -477,6 +489,39 @@ def test_the_run_never_leaves_a_ticket_in_processing() -> None:
     assert _run("u_002", _BILLING).status is not TicketStatus.PROCESSING
 
 
+def test_a_run_counts_only_into_the_registry_it_was_handed() -> None:
+    # `repository`, `llm` and `clock` are per-app state and have no defaults; `metrics` is
+    # per-app state too -- `create_app` builds the one `GET /metrics` serves. It used to
+    # default to the module-level `REGISTRY`, which is the wrong object in exactly the
+    # case the parameter exists for.
+    before = REGISTRY.render()
+    registry = MetricRegistry()
+
+    _run("u_002", _BILLING, metrics=registry)
+
+    assert 'tickets_total{status="replied"} 1' in registry.render()
+    assert REGISTRY.render() == before  # nothing leaked into the process-wide one
+
+
+def test_run_pipeline_has_no_default_registry_to_leak_into() -> None:
+    """The guard for the test above, and for the callers that do not exist yet.
+
+    With a default, a caller that omits `metrics` counts into the module singleton while
+    the endpoint serves an object nobody wrote to -- silently, since every number is
+    merely low rather than absent. The roadmap's reaper and queue worker are the next two
+    callers of `run_pipeline`; the parameter being required is what stops either of them
+    being written that way.
+    """
+    repository = InMemoryTicketRepository(FrozenClock())
+    ticket = _ticket("u_002", *_BILLING)
+    repository.create(ticket)
+
+    with pytest.raises(TypeError):
+        run_pipeline(  # type: ignore[call-arg]
+            ticket.id, repository=repository, llm=FakeLLM(), clock=FrozenClock()
+        )
+
+
 def test_running_an_unknown_ticket_id_raises_rather_than_writing_anything() -> None:
     # The API creates the ticket before scheduling the run, so this cannot happen in the
     # real flow -- and if it does, it is a bug to surface, not a handoff to invent for a
@@ -489,6 +534,7 @@ def test_running_an_unknown_ticket_id_raises_rather_than_writing_anything() -> N
             repository=repository,
             llm=FakeLLM(),
             clock=FrozenClock(),
+            metrics=MetricRegistry(),
         )
 
 
@@ -528,7 +574,34 @@ def test_a_failing_write_is_not_retried_into_a_second_final_decision() -> None:
             repository=repository,
             llm=FakeLLM(),
             clock=FrozenClock(),
+            metrics=MetricRegistry(),
         )
 
     (attempt,) = repository.attempts  # tried once, not caught and tried again
     assert attempt.count("final_decision") == 1
+
+
+def test_a_tool_call_is_always_followed_by_a_tool_result() -> None:
+    """The `tool_result` step is the first thing a reader looks at when a ticket went
+    wrong, so the loop records one even when the call failed. Summarising the result is
+    part of that call: if it raises after the tool returned, an unpaired `tool_call` is
+    the only trace left of what happened.
+    """
+
+    def _unsummarisable(tool: str, args: dict[str, object]) -> ToolResult:
+        # A tool that dispatches and returns, but that `tracing/` has no rule for.
+        return ToolResult(tool="get_refunds", records=[])
+
+    ticket = _run(llm=_CallsAnUnregisteredTool(), tools=_unsummarisable)
+
+    assert _types(ticket) == [
+        "intent_classified",
+        "llm_decision",
+        "tool_call",
+        "tool_result",
+        "final_decision",
+    ]
+    result = next(s for s in ticket.trace if isinstance(s, ToolResultStep))
+    assert not result.ok
+    assert result.error is not None and "summariser" in result.error.message
+    assert _final(ticket).reason is HandoffReason.TOOL_ERROR

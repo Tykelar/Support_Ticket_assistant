@@ -1,6 +1,6 @@
 """`FactSet` -- grounding layer 1: tool results projected into typed facts.
 
-Reserved by TESTS.md ("projection from observations, `allowed_literals()`"). Every case
+Reserved by TESTS.md ("projection from observations"). Every case
 builds its history the way the orchestrator will -- an `Observation` pairing a `ToolCall`
 with `registry.run`'s result against the *shared* fixtures -- so the projected facts
 cannot drift from the data the running service reads (TESTS.md strategy).
@@ -37,8 +37,8 @@ def test_empty_history_projects_an_empty_factset() -> None:
     assert facts.user_id is None
     assert facts.invoices == ()
     assert facts.sessions == ()
-    assert facts.allowed_literals() == set()
     assert facts.allowed_numbers() == set()
+    assert facts.allowed_identifiers() == set()
 
 
 def test_billing_history_projects_user_and_invoices_in_loader_order() -> None:
@@ -68,29 +68,27 @@ def test_charging_history_projects_sessions_newest_first_with_stations() -> None
     assert facts.invoices == ()
 
 
+def _everything_the_checker_consults(facts: FactSet) -> set[str]:
+    """The four helpers `GroundingChecker.verify` actually reads, as one set of strings."""
+    return (
+        {str(number) for number in facts.allowed_numbers()}
+        | facts.allowed_identifiers()
+        | facts.allowed_entities()
+        | facts.allowed_statuses()
+    )
+
+
 def test_the_projection_drops_dates_and_plan() -> None:
     # A reply may never state an issue date or a plan tier; layer 1 makes that
     # unreachable by simply not carrying them.
     facts = FactSet.from_observations(_history("u_002", "get_invoices"))
     dropped = {"2026", "08", "15", "basic", "premium", "en"}
-    assert dropped.isdisjoint(facts.allowed_literals())
+    assert dropped.isdisjoint(_everything_the_checker_consults(facts))
 
 
 # --------------------------------------------------------------------------------------
-# allowed_literals() and the per-class helpers
+# The per-class helpers -- what the checker compares against
 # --------------------------------------------------------------------------------------
-
-
-def test_allowed_literals_covers_names_ids_amounts_currencies_statuses_and_count() -> None:
-    facts = FactSet.from_observations(_history("u_002", "get_invoices"))
-    literals = facts.allowed_literals()
-
-    assert {"Ben Carter", "Ben", "Carter"} <= literals          # name and its tokens
-    assert {"u_002", "inv_204", "inv_203", "inv_202"} <= literals
-    assert {"42.10", "38.90", "31.20"} <= literals              # amounts, two decimals
-    assert "EUR" in literals
-    assert {"failed", "paid"} <= literals
-    assert "3" in literals                                      # the invoice count
 
 
 def test_allowed_numbers_compares_amounts_as_decimals_not_strings() -> None:
@@ -130,14 +128,13 @@ def test_allowed_entities_is_empty_without_facts() -> None:
     assert FactSet.from_observations([]).allowed_entities() == set()
 
 
-def test_charging_literals_include_session_ids_stations_and_statuses() -> None:
+def test_the_charging_side_projects_ids_stations_statuses_and_the_count() -> None:
     facts = FactSet.from_observations(_history("u_003", "get_charging_sessions"))
-    literals = facts.allowed_literals()
 
-    assert {"sess_3002", "sess_3001"} <= literals
-    assert {"Lyon Part-Dieu", "Lyon Confluence"} <= literals
-    assert {"interrupted", "completed"} <= literals
-    assert "2" in literals                                      # the session count
+    assert facts.allowed_identifiers() >= {"sess_3002", "sess_3001"}
+    assert facts.allowed_entities() >= {"Lyon Part-Dieu", "Lyon Confluence"}
+    assert facts.allowed_statuses() == {"interrupted", "completed"}
+    assert Decimal(2) in facts.allowed_numbers()                # the session count
     assert facts.allowed_statuses() == {"interrupted", "completed"}
 
 

@@ -20,6 +20,7 @@ than using `caplog`, because `observability.logging.configure_logging` sets
 import io
 import json
 import logging
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -251,6 +252,55 @@ def test_a_step_log_carries_the_bound_ticket_id_and_the_step_ts() -> None:
     assert line["tool"] == "get_user"
 
 
+def test_a_tool_call_log_carries_exactly_the_keys_that_step_has() -> None:
+    """The field set, not just a field.
+
+    `_describe`'s default branch derives a line's fields from the step model itself, so
+    nothing declares this shape anywhere -- which is how OBSERVABILITY.md came to document
+    an `iteration` key on a `tool_call` line. Only `llm_decision` carries `iteration`; a
+    tool call carries `args`. Asserting the whole key set is what makes the documented
+    line and the emitted one the same claim.
+    """
+    rec = TraceRecorder(FrozenClock())
+    rec.tool_call("get_invoices", {"user_id": "u_004"})
+    (step,) = rec.steps
+
+    with _captured_logs() as stream, ticket_scope("t_abc"):
+        log_step(step)
+
+    (line,) = _lines(stream)
+    assert set(line) == {"ts", "level", "event", "ticket_id", "tool", "args"}
+    assert line["args"] == {"user_id": "u_004"}
+
+
+def test_no_step_log_carries_the_customers_words() -> None:
+    """`logging.py` promises `subject` and `body` are never logged. Because the default
+    branch dumps whatever fields a step model declares, that promise is today a property
+    of the *trace models* rather than of this module: a field added to any step would
+    reach the log aggregator on the next deploy with nothing objecting.
+
+    This is the assertion that makes the promise the module's own -- the same shape of
+    guard as `test_clock.py`'s grep for `datetime.now(`.
+    """
+    clock = FrozenClock()
+    steps = _replied_trace(clock)
+    rec = TraceRecorder(clock)
+    rec.tool_result("get_invoices", error=_tool_error("NoDataAvailable", "no invoices"))
+    rec.final_decision(
+        TicketStatus.HANDED_OFF,
+        reason=HandoffReason.DATA_NOT_FOUND,
+        detail="get_invoices: user u_004 has no invoices",
+    )
+    steps += rec.steps
+
+    with _captured_logs() as stream, ticket_scope("t_abc"):
+        for step in steps:
+            log_step(step)
+
+    logged_keys = {key for line in _lines(stream) for key in line}
+    assert not logged_keys & {"subject", "body"}
+
+
 def test_a_handoff_step_logs_at_warning_with_the_reason() -> None:
     rec = TraceRecorder(FrozenClock())
     rec.final_decision(
@@ -318,3 +368,52 @@ def _tool_error(type_: str, message: str):
     from support_assistant.tracing.models import ToolError
 
     return ToolError(type=type_, message=message)
+
+
+def test_a_run_that_took_no_decisions_is_not_counted_as_one_iteration() -> None:
+    """An `unknown` intent hands off before the loop, so no `llm_decision` step exists.
+    Without a zero bucket that run lands in `le="1"` and reads as a one-iteration reply --
+    the histogram would say the loop ran when it never started.
+    """
+    registry = MetricRegistry()
+    rec = TraceRecorder(FrozenClock())
+    rec.intent_classified(Intent.UNKNOWN, [])
+    rec.final_decision(
+        TicketStatus.HANDED_OFF,
+        reason=HandoffReason.UNSUPPORTED_INTENT,
+        detail="intent classified unknown",
+    )
+
+    record_run(
+        registry,
+        status=TicketStatus.HANDED_OFF,
+        reason=HandoffReason.UNSUPPORTED_INTENT,
+        steps=rec.steps,
+    )
+
+    text = registry.render()
+    assert 'iterations_per_ticket_bucket{le="0"} 1' in text
+    assert "iterations_per_ticket_sum 0" in text
+
+
+def test_a_counter_keeps_every_increment_under_concurrent_writers() -> None:
+    """`record_run` runs in the background threadpool, so two runs can finish at once and
+    `inc` is a read-modify-write. `SqliteTicketRepository` takes a lock for the same
+    reason.
+
+    Under the GIL a lost update is rare rather than certain, so this test is a regression
+    guard on the locked implementation, not a demonstration of the unlocked bug.
+    """
+    counter = Counter("things_total", "Things that happened.", ("kind",))
+
+    def _bump() -> None:
+        for _ in range(2_000):
+            counter.inc(kind="a")
+
+    threads = [threading.Thread(target=_bump) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert 'things_total{kind="a"} 16000' in counter.render()

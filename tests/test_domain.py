@@ -131,7 +131,7 @@ def test_ticket_ids_do_not_collide() -> None:
 
 
 # --------------------------------------------------------------------------------------
-# How an amount is written -- shared by FactSet.allowed_literals() and the templates, so
+# How an amount is written -- shared by the FactSet helpers and the templates, so
 # the text a reply prints and the text the facts list are the same string.
 # --------------------------------------------------------------------------------------
 

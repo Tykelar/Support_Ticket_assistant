@@ -1,21 +1,16 @@
 """The application factory, and the one place the service is wired together.
 
-`create_app()` takes its three collaborators as optional arguments and falls back to the
-production ones. That is what lets a test assemble the whole HTTP surface over an
-in-memory repository and a frozen clock without patching a module-level global, and it is
-the same injection argument the orchestrator makes one layer down
-([ADR 0008](../../../docs/adr/0008-injected-clock-with-advancing-test-double.md)).
+`create_app()` takes its collaborators as optional arguments and falls back to the
+production ones, so a test can assemble the whole HTTP surface over an in-memory repository
+and a frozen clock without patching a global (ADR 0008).
 
-**Who owns the repository.** The database connection has to outlive a request -- a
-connection per call would make `:memory:` lose its contents and would serialise nothing --
-so something must hold it for the process lifetime and close it at the end. That is the
-lifespan, and only when it built the repository itself: an injected one belongs to
-whoever passed it in, and closing someone else's connection at shutdown is how a test
-suite starts failing in its teardown.
+**Who owns the repository.** The connection has to outlive a request, so the lifespan holds
+it for the process lifetime -- and closes it only when it built it. An injected repository
+belongs to whoever passed it in, and closing someone else's connection at shutdown is how a
+suite starts failing in teardown.
 
 Nothing opens a database at import time, which is what makes the module-level `app` below
-safe: `uvicorn support_assistant.api.app:app` imports this file, and the connection is
-made when the server starts, not when the module is read.
+safe.
 """
 
 from collections.abc import AsyncIterator
@@ -54,10 +49,9 @@ def create_app(
 ) -> FastAPI:
     """The application, with its collaborators injected or defaulted.
 
-    The defaults are the production ones: the LLM client `build_llm()` selects from
-    `LLM_PROVIDER` (`FakeLLM` unless `LLM_PROVIDER=ollama` -- ADR 0006), a `SystemClock`,
-    and the process-wide metric `REGISTRY`. The repository is built in the lifespan rather
-    than here, so importing this module never touches the filesystem.
+    The defaults are the production ones: `build_llm()`'s choice of client, a
+    `SystemClock`, and the process-wide `REGISTRY`. The repository is built in the lifespan
+    rather than here, so importing this module never touches the filesystem.
     """
     the_clock = clock if clock is not None else SystemClock()
     the_llm = llm if llm is not None else build_llm()
@@ -80,8 +74,6 @@ def create_app(
             yield
         finally:
             if owned is not None:
-                # Only what this lifespan opened. An injected repository is the caller's,
-                # and closing it here would shut a connection its owner is still using.
                 owned.close()
 
     app = FastAPI(title=TITLE, description=DESCRIPTION, version="0.1.0", lifespan=lifespan)

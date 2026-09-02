@@ -1,18 +1,16 @@
 """The five reply bodies, `spec_for()`, and each template's `TEMPLATE_SAFE_LITERALS`.
 
-A `Reply` from the model names a `ReplyTemplate` only (LLM.md). The orchestrator projects
-a `FactSet` from the history, resolves the spec with `spec_for(template)` and calls
-`spec.render(facts)`; every value in the finished text comes from that `FactSet` --
-grounding layer 1
+A `Reply` from the model names a `ReplyTemplate` only. The orchestrator projects a
+`FactSet`, resolves the spec and renders it, so every value in the finished text comes from
+that `FactSet` -- grounding layer 1
 ([ADR 0004](../../../docs/adr/0004-two-layer-grounding-enforcement.md)).
 
-`TEMPLATE_SAFE_LITERALS` is the small, per-template allowlist for numbers that live in a
-body's *static prose* ("within 3 business days") and so will never be in a `FactSet`.
-Adding a number to prose means adding it here -- a visible, reviewable act (GUARDRAILS.md).
+`TEMPLATE_SAFE_LITERALS` is the per-template allowlist for numbers in a body's static prose
+("within 3 business days"), which are never in a `FactSet`. Adding a number to prose means
+adding it here -- a visible, reviewable act (GUARDRAILS.md).
 
-The `FactSet` type is imported under `TYPE_CHECKING` only: `render` needs its shape for
-type-checking but `llm/` and `guardrails/` know nothing about each other at runtime
-(ARCHITECTURE.md section 3). The orchestrator, which imports both, wires them together.
+`FactSet` is imported under `TYPE_CHECKING` only: `llm/` and `guardrails/` know nothing
+about each other at runtime (ARCHITECTURE.md section 3).
 """
 
 from __future__ import annotations
@@ -32,8 +30,8 @@ from support_assistant.domain import format_amount
 @dataclass(frozen=True)
 class Template:
     """One reply template: its prose, how it pulls its fields from a `FactSet`, and the
-    static literals its prose is allowed to contain. `spec_for` returns one of these; the
-    orchestrator hands it to `GroundingChecker.verify`."""
+    static literals its prose may contain. The orchestrator hands it to
+    `GroundingChecker.verify`."""
 
     name: ReplyTemplate
     body: str
@@ -43,28 +41,21 @@ class Template:
     def render(self, facts: FactSet) -> str:
         """This template's prose, every field filled from `facts`.
 
-        A method on the spec rather than a lookup function taking a `ReplyTemplate`, so
-        the doctored-template test renders a `Template` that is deliberately wrong through
-        the *same* code path a real one takes, without reaching into the private registry
-        (TESTS.md, "the one that guards the unforgivable bug").
+        A method on the spec rather than a lookup taking a `ReplyTemplate`, so the
+        doctored-template test renders a deliberately wrong `Template` through the same
+        code path a real one takes (TESTS.md).
 
-        Raises `ValueError` if `facts` cannot fill the template -- no user name, or no
-        invoice or session of the kind the template speaks about. `FakeLLM` cannot ask for
-        that, since it picks the template from these very records; a real model names any
-        of the five, and failing with the missing fact named beats a bare `StopIteration`
-        in the trace.
+        Raises `ValueError` if `facts` cannot fill the template. `FakeLLM` cannot ask for
+        that, since it picks the template from these records; a real model names any of the
+        five, and naming the missing fact beats a bare `StopIteration` in the trace.
         """
         return self.body.format(**self.context(facts))
 
 
 def spec_for(template: ReplyTemplate) -> Template:
-    """The `Template` for a `ReplyTemplate`: the one thing a caller needs, because the
-    same spec has to both render and be checked (ADR 0004).
-
-    There is deliberately no `render(template, facts)` shortcut beside this. It would be a
-    second way in that no caller can actually use -- verifying against a spec other than
-    the one that rendered would check a reply's literals against the wrong safe list, so
-    the orchestrator must hold the spec either way (LLM.md).
+    """The `Template` for a `ReplyTemplate`. The same spec has to both render and be
+    checked, so there is deliberately no `render(template, facts)` shortcut beside this:
+    the orchestrator has to hold the spec either way (ADR 0004).
     """
     return _TEMPLATES[template]
 
@@ -73,16 +64,14 @@ def spec_for(template: ReplyTemplate) -> Template:
 # Field selection -- which record each template speaks about.
 #
 # Each selector raises `ValueError` naming the fact it wanted rather than letting a bare
-# `StopIteration` or `IndexError` out. The orchestrator's catch-all maps either to a
-# TOOL_ERROR handoff (GUARDRAILS.md section 2, "any unhandled exception"), so both fail
-# closed -- but only one of them tells the support agent reading the trace what was
-# missing. Plain `ValueError` for a contract violation, as in `fake.py`.
+# `StopIteration` or `IndexError` out. Both fail closed to a TOOL_ERROR handoff, but only
+# one tells the support agent reading the trace what was missing.
 # --------------------------------------------------------------------------------------
 
 
 def _name(facts: FactSet) -> str:
-    """The reply is addressed by name, and the name is a fact that must be sourced like
-    any other (LLM.md) -- so a missing one is a refusal, not an empty greeting."""
+    """The name is a fact and must be sourced like any other, so a missing one is a
+    refusal rather than an empty greeting."""
     if not facts.user_name:
         raise ValueError("a reply template needs the user's name, but the FactSet has none")
     return facts.user_name

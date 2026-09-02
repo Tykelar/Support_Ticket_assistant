@@ -1,21 +1,17 @@
 """The three tools, and the fixture reading and validation behind them.
 
-Each tool *is* a thin loader: filter the flat table to the requested user, validate the
-rows it fetched, sort newest-first, raise if there are none. TOOLS.md is the contract;
-the constraints that would bite a skim are:
+Each tool is a thin loader: filter the flat table to the requested user, validate what it
+fetched, sort newest-first, raise if there are none. TOOLS.md is the contract; the
+constraints that would bite a skim are:
 
-- **Filter by `user_id` first, validate second.** Every row carries `user_id` as its
-  filter key. `get_user` validates its row whole (`User` declares `user_id`); `_collection`
-  drops the key per row, since the collection models are `extra="forbid"` and do not.
-  Filtering first is what stops `u_006`'s malformed invoice breaking every other user's
-  billing path.
+- **Filter by `user_id` first, validate second.** That is what stops `u_006`'s malformed
+  invoice breaking every other user's billing path.
 - **Zero rows is `NoDataAvailable`, never `[]`** -- collection tools only (ADR 0009).
-- **Read and parse on every call, no cache** -- ADR 0003 keeps fixtures as JSON so a
-  reviewer can edit a file and re-run without a restart.
-- **Sort in the loader**, not trusted from the file: a reviewer editing a row should not
-  be able to silently break the newest-first contract.
-- A validation failure's message is a **locator, not the value** -- it lands in the trace,
-  which is served over the API. The full `ValidationError` is chained for the log.
+- **Read and parse on every call, no cache**, so a reviewer can edit a fixture and re-run
+  without a restart.
+- **Sort in the loader**, not trusted from the file.
+- A validation failure's message is a **locator, not the value**: it lands in the trace,
+  which is served over the API.
 """
 
 import json
@@ -34,14 +30,12 @@ from support_assistant.tools.errors import (
 )
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
-"""Resolved relative to the package, not injected. TESTS.md is explicit that the suite
-reads the same files as the running service, so there is no second directory to point at;
-making it an argument is a one-line change if that ever stops being true."""
+"""Resolved relative to the package, not injected: the suite reads the same files as the
+running service, so there is no second directory to point at."""
 
 _FILTER_KEY = "user_id"
-"""Every fixture row carries this as its filter key. `User` also declares it as a real
-field, so its row validates whole; the collection models forbid it, so `_collection` drops
-it per row before validating."""
+"""Every fixture row carries this. `User` declares it as a real field, so its row validates
+whole; the collection models forbid it, so `_collection` drops it before validating."""
 
 
 # --------------------------------------------------------------------------------------
@@ -83,7 +77,7 @@ def _collection[R: FixtureRecord](
     sort_key: Callable[[R], datetime],
 ) -> list[R]:
     """The shared body of the two collection tools: check the user, filter to their rows,
-    fail if there are none (ADR 0009), validate each, return them newest first."""
+    fail if there are none (ADR 0009), validate each, return newest first."""
     get_user(user_id)  # an unknown user is UserNotFound, not NoDataAvailable
     rows = _rows_for(filename, user_id)
     if not rows:
@@ -127,9 +121,9 @@ def _rows_for(filename: str, user_id: str) -> list[dict]:
 
 
 def _validate[R: FixtureRecord](model: type[R], payload: dict, *, locator: str) -> R:
-    """Validate one already-filtered row, or raise `ToolExecutionError` whose message is
-    `locator` plus the failed field names -- never the offending value, which stays in the
-    chained `ValidationError` bound for the log."""
+    """Validate one already-filtered row, or raise `ToolExecutionError` naming `locator`
+    and the failed fields -- never the offending value, which stays in the chained
+    `ValidationError`."""
     try:
         return model.model_validate(payload)
     except ValidationError as exc:

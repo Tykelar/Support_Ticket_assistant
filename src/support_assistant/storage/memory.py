@@ -1,14 +1,11 @@
 """`InMemoryTicketRepository` -- a dict behind the same protocol, for tests.
 
-Not a stub: it implements the whole contract, and `tests/test_repository_contract.py`
-runs the same suite against it and against `SqliteTicketRepository`. A double that has
-drifted from the real implementation is worse than no double, because it makes the suite
-confidently wrong (STORAGE.md, TESTS.md).
+Not a stub: `tests/test_repository_contract.py` runs one suite against it and against
+`SqliteTicketRepository`, because a double that has drifted is worse than no double.
 
-The one behaviour worth stating: tickets go in and come out as deep copies. SQLite hands
-back a freshly parsed row every time, so a caller that mutated what it read could never
-affect the store; a dict of live objects would let it, and the double would then be
-quietly more permissive than the thing it stands in for.
+Tickets go in and come out as deep copies. SQLite hands back a freshly parsed row every
+time, so a caller mutating what it read cannot affect the store; a dict of live objects
+would let it, making the double more permissive than the real thing.
 """
 
 from support_assistant.clock import Clock
@@ -47,8 +44,7 @@ class InMemoryTicketRepository:
         if stored is None:
             raise TicketNotFound(ticket_id)
         # Built through the model rather than mutated field by field, so the
-        # status/reply/reason validator runs on the finished state -- the same check the
-        # SQLite implementation gets from the table's CHECK constraint.
+        # status/reply/reason validator runs on the finished state.
         self._tickets[ticket_id] = Ticket(
             **stored.model_dump()
             | {
