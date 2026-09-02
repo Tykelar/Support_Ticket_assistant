@@ -25,6 +25,7 @@ from support_assistant.enums import (
 from support_assistant.tracing.models import TraceStep
 
 __all__ = [
+    "BodyText",
     "ChargingSession",
     "Classification",
     "FixtureRecord",
@@ -38,11 +39,13 @@ __all__ = [
     "ReplyTemplate",
     "SessionStatus",
     "Step",
+    "SubjectText",
     "Ticket",
     "TicketStatus",
     "ToolCall",
     "ToolResult",
     "User",
+    "UserId",
     "format_amount",
     "new_ticket_id",
 ]
@@ -253,18 +256,33 @@ class Observation(BaseModel):
 # --------------------------------------------------------------------------------------
 
 
+UserId = Annotated[str, Field(min_length=1)]
+"""Who raised the ticket. Non-empty, and deliberately nothing more: whether the user
+*exists* is a fact only a tool can establish, and establishing it is a pipeline step that
+belongs in the trace -- so an unknown user is a `202` and a later `USER_NOT_FOUND`
+handoff, not a rejection at the edge."""
+
+SubjectText = Annotated[str, Field(min_length=1, max_length=200)]
+BodyText = Annotated[str, Field(min_length=1, max_length=5000)]
+"""The customer's words, bounded. Named types rather than bounds written out at each use,
+because `api.schemas.CreateTicketRequest` validates the same three fields at the edge and
+`Ticket` validates them again on the way to storage. Two models, one definition -- so
+they cannot drift, and no test is needed to check that they have not.
+
+This is the opposite case to `Ticket`'s validator and the table `CHECK` in STORAGE.md,
+which are duplicated on purpose: those are two different enforcement technologies that
+cannot share a definition. These are two Pydantic models in one process, and can."""
+
+
 class Ticket(BaseModel):
     """A support request, and the record of what the service did about it."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    user_id: str = Field(min_length=1)
-    """Not validated against the fixtures. Whether a user exists is a fact only a tool
-    can establish, and establishing it is a pipeline step that belongs in the trace."""
-
-    subject: str = Field(min_length=1, max_length=200)
-    body: str = Field(min_length=1, max_length=5000)
+    user_id: UserId
+    subject: SubjectText
+    body: BodyText
 
     status: TicketStatus = TicketStatus.PROCESSING
     reply: str | None = None

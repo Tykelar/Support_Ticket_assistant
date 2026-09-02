@@ -87,4 +87,4 @@ def read_ticket(ticket_id: str, repository: Repository) -> TicketView:
     ticket = repository.get(ticket_id)
     if ticket is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=_NO_SUCH_TICKET)
-    return TicketView.of(ticket)
+    return TicketView.model_validate(ticket)

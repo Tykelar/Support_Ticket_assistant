@@ -14,8 +14,8 @@ names its metrics; only the sample lines wait for the first run, so a scrape is 
 empty body a dashboard could read as "nothing is wrong".
 """
 
-from fastapi import APIRouter, status
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import APIRouter, Response, status
+from fastapi.responses import PlainTextResponse
 
 from support_assistant.api.dependencies import Metrics, Repository
 from support_assistant.api.schemas import Health
@@ -36,7 +36,11 @@ asserted: the question is whether the store answers at all."""
     responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"model": Health}},
     summary="Liveness, including the database behind it",
 )
-def health(repository: Repository) -> JSONResponse:
+def health(repository: Repository, response: Response) -> Health:
+    """The status code is set on the injected `Response` rather than by returning a
+    `JSONResponse`, so the body still goes out through `response_model=Health` above. A
+    hand-built response would bypass that model, leaving the declaration decorative and
+    the two states unchecked."""
     try:
         repository.get(_PROBE_ID)
     except Exception:
@@ -44,11 +48,9 @@ def health(repository: Repository) -> JSONResponse:
         # database, a corrupt page -- means the same thing to whoever reads this: do not
         # send traffic here. Narrowing it to sqlite3 errors would also tie an operational
         # endpoint to which repository implementation is wired in.
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=Health(status="unavailable").model_dump(),
-        )
-    return JSONResponse(status_code=status.HTTP_200_OK, content=Health(status="ok").model_dump())
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return Health(status="unavailable")
+    return Health(status="ok")
 
 
 @router.get(

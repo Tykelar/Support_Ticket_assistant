@@ -28,10 +28,10 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import ValidationError
 
 from support_assistant.api.app import create_app
-from support_assistant.api.schemas import CreateTicketRequest
+from support_assistant.api.schemas import CreateTicketRequest, Health
 from support_assistant.clock import FrozenClock
 from support_assistant.domain import (
     HandoffReason,
@@ -119,15 +119,6 @@ def _seed(repository: InMemoryTicketRepository, user_id: str = "u_002") -> Ticke
 
 def _post(client: TestClient, **overrides: Any) -> httpx.Response:
     return client.post("/tickets", json=_BILLING | overrides)
-
-
-def _bounds(model: type[BaseModel], field: str) -> tuple[int | None, int | None]:
-    """The `(min_length, max_length)` a model declares for one field."""
-    metadata = model.model_fields[field].metadata
-    return (
-        next((m.min_length for m in metadata if hasattr(m, "min_length")), None),
-        next((m.max_length for m in metadata if hasattr(m, "max_length")), None),
-    )
 
 
 class _UnreachableDatabase:
@@ -241,12 +232,35 @@ def test_a_malformed_ticket_is_rejected(
     assert client.post("/tickets", json=payload).status_code == 422, description
 
 
-@pytest.mark.parametrize("field", ["user_id", "subject", "body"])
-def test_the_request_schema_repeats_the_domain_limits(field: str) -> None:
-    """The wire contract and the domain model state the same bounds, and this is what
-    stops them drifting apart. Two enforcement points that disagree would be worse than
-    one -- the same argument `Ticket`'s validator and the table `CHECK` already make."""
-    assert _bounds(CreateTicketRequest, field) == _bounds(Ticket, field)
+@pytest.mark.parametrize(
+    ("field", "at_the_limit"),
+    [("subject", "x" * 200), ("body", "x" * 5000)],
+)
+def test_the_edge_and_the_domain_agree_at_the_boundary(
+    client: TestClient, field: str, at_the_limit: str
+) -> None:
+    """The longest legal value is accepted by the edge *and* by the model the pipeline
+    persists.
+
+    `CreateTicketRequest` and `Ticket` are annotated with the same constrained type from
+    `domain`, so there is one definition of the bound rather than two kept in step. This
+    is the behaviour that definition exists to guarantee: nothing is admitted at the door
+    that the domain would then refuse to store.
+    """
+    assert _post(client, **{field: at_the_limit}).status_code == 202
+
+    text = {"subject": "ok", "body": "ok"} | {field: at_the_limit}
+    Ticket(id=new_ticket_id(), user_id="u_002", created_at=_NOW, updated_at=_NOW, **text)
+
+
+def test_the_wire_model_and_the_domain_name_the_same_constraint() -> None:
+    """The other half: they are the same annotation object, not two that happen to match.
+    A copy would pass the boundary test above on the day it was written and drift later.
+    """
+    for field in ("user_id", "subject", "body"):
+        assert CreateTicketRequest.model_fields[field].metadata == (
+            Ticket.model_fields[field].metadata
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -429,6 +443,25 @@ def test_health_reports_unavailable_when_the_database_does_not() -> None:
 
     assert response.status_code == 503
     assert response.json()["status"] != "ok"
+
+
+def test_the_health_body_admits_only_the_two_documented_states() -> None:
+    """API.md documents exactly `ok` and `unavailable`. A bare `str` would let a later
+    edit invent a third state that no client knows how to read -- and would publish the
+    field to the OpenAPI schema as "any string", which tells a reader nothing."""
+    assert Health(status="ok").status == "ok"
+    assert Health(status="unavailable").status == "unavailable"
+
+    with pytest.raises(ValidationError):
+        Health(status="degraded")
+
+
+def test_the_health_schema_advertises_both_states(client: TestClient) -> None:
+    """`/health` is what a container HEALTHCHECK and a load balancer read, so the two
+    states it can report belong in the published schema rather than only in prose."""
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["Health"]
+
+    assert schema["properties"]["status"]["enum"] == ["ok", "unavailable"]
 
 
 def test_the_interactive_docs_are_served(client: TestClient) -> None:

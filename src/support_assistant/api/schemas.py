@@ -6,19 +6,19 @@ the domain model directly would make every field an accidental part of the publi
 `subject` and `body` echoed back for no reason, and any future internal field published
 the day it is added.
 
-The length bounds *are* repeated from `Ticket`, and that duplication is checked:
-`test_api.py::test_the_request_schema_repeats_the_domain_limits` compares the two field
-by field, so the wire contract and the domain model cannot drift apart silently. Same
-argument as `Ticket`'s validator and the table `CHECK` in STORAGE.md -- two enforcement
-points, kept identical on purpose.
+Separate models, but **not** separate bounds. `user_id`, `subject` and `body` are
+annotated with `UserId`, `SubjectText` and `BodyText` from `domain`, the same constrained
+types `Ticket` uses, so the edge and the model the pipeline persists cannot disagree
+about what is too long. One definition, rather than two copies and a test to check they
+still match.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer
+from pydantic import BaseModel, ConfigDict, TypeAdapter, field_serializer
 
-from support_assistant.domain import Ticket
+from support_assistant.domain import BodyText, SubjectText, UserId
 from support_assistant.enums import HandoffReason, TicketStatus
 from support_assistant.tracing.models import TraceStep
 
@@ -36,13 +36,9 @@ class CreateTicketRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str = Field(min_length=1)
-    """Not checked against the fixtures. Whether a user exists is a fact only a tool can
-    establish, and establishing it is a pipeline step that belongs in the trace (API.md)
-    -- so an unknown user is a `202` and a later `USER_NOT_FOUND` handoff, not a `400`."""
-
-    subject: str = Field(min_length=1, max_length=200)
-    body: str = Field(min_length=1, max_length=5000)
+    user_id: UserId
+    subject: SubjectText
+    body: BodyText
 
 
 class TicketAccepted(BaseModel):
@@ -86,10 +82,6 @@ class TicketView(BaseModel):
     """Empty for a `processing` ticket, not partial: steps are written with the terminal
     state in one transaction (STORAGE.md)."""
 
-    @classmethod
-    def of(cls, ticket: Ticket) -> "TicketView":
-        return cls.model_validate(ticket)
-
     @field_serializer("trace")
     def _served_steps(self, trace: list[TraceStep]) -> list[dict[str, Any]]:
         """Steps as TRACEABILITY.md writes them: aliased, and without their empty fields.
@@ -107,9 +99,11 @@ class TicketView(BaseModel):
 
 
 class Health(BaseModel):
-    """`/health`'s body. A string rather than a bare `200` so a reader of the response --
-    or a log line -- can see which state was reported."""
+    """`/health`'s body. A named state rather than a bare `200` so a reader of the
+    response -- or a log line -- can see which one was reported."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: str
+    status: Literal["ok", "unavailable"]
+    """Exactly the two states API.md documents, so the pair is published in the OpenAPI
+    schema and a third one cannot be invented without changing the contract."""

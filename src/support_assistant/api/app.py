@@ -65,8 +65,13 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging()
-        owned = SqliteTicketRepository(database_path(), the_clock) if repository is None else None
-        app.state.repository = repository if owned is None else owned
+        # `owned` is what this lifespan opened, and so the only thing it may close.
+        if repository is not None:
+            owned = None
+            app.state.repository = repository
+        else:
+            owned = SqliteTicketRepository(database_path(), the_clock)
+            app.state.repository = owned
         app.state.llm = the_llm
         app.state.clock = the_clock
         app.state.metrics = the_metrics
