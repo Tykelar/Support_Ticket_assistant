@@ -25,8 +25,8 @@ from fastapi import FastAPI
 
 from support_assistant.api import ops, routes
 from support_assistant.clock import Clock, SystemClock
-from support_assistant.llm.fake import FakeLLM
 from support_assistant.llm.protocol import LLMClient
+from support_assistant.llm.provider import build_llm
 from support_assistant.observability.logging import configure_logging
 from support_assistant.observability.metrics import REGISTRY, MetricRegistry
 from support_assistant.storage.protocol import TicketRepository
@@ -54,12 +54,13 @@ def create_app(
 ) -> FastAPI:
     """The application, with its collaborators injected or defaulted.
 
-    The defaults are the production ones: `FakeLLM` (deterministic, offline -- ADR 0006),
-    a `SystemClock`, and the process-wide metric `REGISTRY`. The repository is built in the
-    lifespan rather than here, so importing this module never touches the filesystem.
+    The defaults are the production ones: the LLM client `build_llm()` selects from
+    `LLM_PROVIDER` (`FakeLLM` unless `LLM_PROVIDER=ollama` -- ADR 0006), a `SystemClock`,
+    and the process-wide metric `REGISTRY`. The repository is built in the lifespan rather
+    than here, so importing this module never touches the filesystem.
     """
     the_clock = clock if clock is not None else SystemClock()
-    the_llm = llm if llm is not None else FakeLLM()
+    the_llm = llm if llm is not None else build_llm()
     the_metrics = metrics if metrics is not None else REGISTRY
 
     @asynccontextmanager

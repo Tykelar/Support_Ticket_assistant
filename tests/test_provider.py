@@ -59,7 +59,7 @@ def test_create_app_builds_the_configured_provider(monkeypatch: pytest.MonkeyPat
         assert isinstance(app.state.llm, OllamaLLM)
 
 
-def test_an_injected_client_still_wins_over_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_injected_client_wins_over_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     injected = FakeLLM()
     app = create_app(llm=injected)
