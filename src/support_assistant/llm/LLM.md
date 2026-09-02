@@ -177,20 +177,60 @@ blocks, so the arrangement here stays legal and a runtime import would not.
 
 ## `OllamaLLM` — optional bonus
 
-The same two methods against a local model over HTTP.
+The same two methods against a local Ollama server over HTTP (`httpx`, an
+[`ollama` extra](../../../pyproject.toml)).
 
 - Selected by `LLM_PROVIDER=ollama`; **off by default**.
 - A clean clone never needs a model server to run the service or pass the tests.
 - Deleting this module would not touch the pipeline. That is the point of the protocol.
 
-It is bounded by the same guardrails as the fake — same iteration cap, same handoff
-rules, and critically the same post-hoc grounding check. Grounding layer 2 exists
-precisely because layer 1's structural guarantee does not survive free-text generation.
+### How it talks to the model
 
-Wired but unpolished: prompt quality is explicitly not what the brief is grading, and
-core requirements come first. What production-shaping it would need — timeouts, a
-circuit breaker, response schema validation, and a golden-file evaluation set — is in
-[the roadmap](../../../docs/ROADMAP.md#hardening-the-real-llm-client).
+`POST {base_url}/api/chat` in **JSON mode** — `"format": "json"`, `"stream": false` — and
+the reply in `message.content` is validated straight onto the domain types:
+`TypeAdapter(Step).validate_python(...)` for `decide_next_step`, `Intent(...)` inside a
+`Classification` for `classify_intent`. The model fills in the discriminated union the
+orchestrator already consumes from `FakeLLM`; JSON mode rather than the tool-calling API
+because `Reply` and `Handoff` are decisions, not tools, and `llm/` cannot import the
+registry to build a `tools` array anyway ([ADR 0015](../../../docs/adr/0015-json-mode-over-the-tool-calling-api.md)).
+
+`base_url` is a constructor argument, like `SqliteTicketRepository`'s `path`. The provider
+factory ([`provider.py`](provider.py), the shape of `database_path()` and
+`max_iterations()`) reads `LLM_PROVIDER` / `OLLAMA_BASE_URL` / `OLLAMA_MODEL` and builds
+one; `create_app(llm=...)` still wins when a test injects a client. An unrecognised
+`LLM_PROVIDER` value raises rather than falling through.
+
+### Failure is closed and uniform
+
+Any failure to get a well-formed answer — an `httpx` transport or timeout error, a
+non-2xx response, `message.content` that is not JSON, or JSON that does not validate
+against `Step` / `Intent` — raises `OllamaProtocolError`, and the orchestrator's catch-all
+turns that into a `TOOL_ERROR` handoff (ADR 0005). A well-formed answer naming an
+unregistered tool fails the same way through `registry.run`. A well-formed
+`{"intent": "unknown"}` is **not** an error — it is an `UNSUPPORTED_INTENT` handoff.
+
+Bounded by the same guardrails as the fake — same iteration cap, same handoff rules, and
+critically the same post-hoc grounding check. Grounding layer 2 exists precisely because
+layer 1's structural guarantee does not survive free-text generation.
+
+### Wired but unpolished
+
+Prompt quality is explicitly not what the brief is grading, and core requirements come
+first. A reader of [`ollama.py`](ollama.py) will trip over these; each is in
+[the roadmap](../../../docs/ROADMAP.md#hardening-the-real-llm-client):
+
+- **The HTTP timeout is a fixed constant and there is no circuit breaker** — a model
+  server that hangs fails closed on the timeout, but nothing sheds load after repeated
+  failures.
+- **One failure test is pinned, not exhaustive schema validation** — `TypeAdapter`
+  rejects a malformed decision, but the response is not decoded against a JSON schema
+  server-side.
+- **The tool catalogue in the prompt is hand-maintained** — `llm/` may not import
+  `tools/` (ARCHITECTURE.md §3), so a fourth tool is a second edit here. The registry
+  stays the enforcement point, so drift costs a `TOOL_ERROR` handoff, not a wrong reply.
+- **No token accounting per ticket**, and **no golden-file evaluation set** — the piece
+  that matters most, and the one that only makes sense once a real model is in use.
+- **One `httpx.Client` per call** — connection pooling is deferred.
 
 ---
 
@@ -203,7 +243,8 @@ llm/
                  names are in domain.py -- see "The protocol")
   fake.py        FakeLLM: keyword rules + step state machine
   templates.py   the 5 reply bodies, spec_for(), Template.render(), TEMPLATE_SAFE_LITERALS
-  ollama.py      OllamaLLM (optional, off by default)                    (phase 11)
+  ollama.py      OllamaLLM (optional, off by default) + OllamaProtocolError
+  provider.py    build_llm(): LLM_PROVIDER picks the client create_app runs with
   LLM.md         this file
 ```
 
