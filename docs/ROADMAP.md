@@ -340,17 +340,44 @@ keeping.
 
 ## Hardening the real LLM client
 
-**What.** Make `OllamaLLM` production-shaped rather than merely wired.
+**What.** `OllamaLLM` is wired ([ADR 0015](adr/0015-json-mode-over-the-tool-calling-api.md)) —
+`LLM_PROVIDER=ollama`, `/api/chat` in JSON mode, every failure closed to a `TOOL_ERROR`
+handoff. Make it production-*shaped* rather than merely wired.
 
 **Why deferred.** An explicit bonus, "never at the expense of the core requirements", and
-prompt quality is what the brief says it is *not* grading.
+prompt quality is what the brief says it is *not* grading. What shipped is a client that
+swaps in behind the protocol and fails closed; what is below is everything that makes a
+real model dependency operable.
 
-**How.** Timeouts and a circuit breaker (a model server that hangs must fail closed, not
-hold the pipeline open); response schema validation so a malformed tool call becomes
-`TOOL_ERROR` rather than an exception; token accounting per ticket; and a golden-file
-evaluation set of tickets with expected intents and tool sequences, so a prompt change
-that regresses classification is caught before it ships. That evaluation set is the piece
-that matters most, and it is also the piece that only makes sense once a real model is in
-use.
+**How.**
 
-**Effort.** ~a day.
+1. **Timeouts and a circuit breaker.** The timeout today is a fixed
+   `OllamaLLM.DEFAULT_TIMEOUT` constant — a ceiling, not a policy. A breaker that opens
+   after N consecutive `OllamaProtocolError`s and sheds straight to handoff stops a
+   wedged model server from timing out every ticket in turn.
+2. **Response schema validation, server-side.** Phase 11 validates the reply with
+   `TypeAdapter(Step)` *after* the call and pins one malformed-response test. Passing a
+   JSON schema as `format` (structured outputs) constrains the decode itself; it needs
+   `Step`'s schema and per-variant discriminator schemas threaded through the request.
+3. **Token accounting per ticket** — Ollama returns `prompt_eval_count` / `eval_count` on
+   each response; sum them into the trace and a `tokens_per_ticket` histogram.
+4. **A golden-file evaluation set** — tickets with expected intents and tool sequences,
+   so a prompt change that regresses classification is caught before it ships. The piece
+   that matters most, and the one that only makes sense once a real model is in use.
+5. **Connection pooling.** `_chat` opens an `httpx.Client` per call. Hold one on the
+   instance with a lifecycle tied to the app, or move to a shared async client.
+6. **The tool catalogue drift guard.** `llm/` may not import `tools/` (ARCHITECTURE.md
+   §3), so `OllamaLLM._TOOL_CATALOGUE` is hand-maintained against `tools/registry`. A
+   test that compares the names in the catalogue string against `registry.registered()`
+   would catch a fourth tool being added to one and not the other — the test lives in
+   `tests/`, which may import both.
+7. **JSON-mode repair / retry.** A single malformed reply is a handoff today. A bounded
+   re-ask ("your last reply was not valid JSON for the contract; try again") would
+   recover the common case. Keep it invisible to the iteration cap, the same property
+   that makes [retry on transient tool failure](#retry-on-transient-tool-failure) safe —
+   cross-reference, do not duplicate.
+8. **Prompt versioning and model pinning.** Stamp the prompt version and the resolved
+   model digest into the trace, so a reply can be reproduced and a regression bisected.
+
+**Effort.** ~a day for 1–3 and 5–6; the evaluation set (4) is open-ended and is the real
+work.

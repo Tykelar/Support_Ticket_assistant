@@ -71,14 +71,16 @@ that is the point, and it is why the optional LLM is opt-in rather than opt-out.
 |---|---|---|
 | `MAX_ITERATIONS` | `5` | hard cap on tool-loop iterations ([GUARDRAILS.md](../src/support_assistant/guardrails/GUARDRAILS.md)) |
 | `DATABASE_PATH` | `data/tickets.db` | SQLite file; `:memory:` for a throwaway run |
-| `LLM_PROVIDER` | `fake` | `fake` or `ollama` &mdash; see note |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | only read when `LLM_PROVIDER=ollama` &mdash; see note |
+| `LLM_PROVIDER` | `fake` | `fake` or `ollama`; any other value fails fast at startup |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | the Ollama server; only read when `LLM_PROVIDER=ollama` |
+| `OLLAMA_MODEL` | `llama3.1` | the model to ask for; only read when `LLM_PROVIDER=ollama` |
 | `LOG_LEVEL` | `info` | structured JSON log level |
 
-> **`LLM_PROVIDER` / `OLLAMA_BASE_URL` are listed but not yet wired.** The real client
-> (`llm/ollama.py`) is phase 11; until it lands, `create_app` uses `FakeLLM` regardless of
-> what these are set to. They are in the table and in `docker-compose.yml` so the surface
-> is documented ahead of the code that reads it.
+> **`LLM_PROVIDER=ollama` is the optional bonus** ([LLM.md](../src/support_assistant/llm/LLM.md),
+> [ADR 0015](../docs/adr/0015-json-mode-over-the-tool-calling-api.md)). It needs a local
+> Ollama server with the model pulled; nothing else does. If the server is unreachable or
+> answers badly, the ticket is handed off with `TOOL_ERROR` -- the pipeline stays bounded,
+> it does not hang. The default `fake` path never imports `httpx`.
 
 ---
 

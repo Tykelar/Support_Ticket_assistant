@@ -7,11 +7,11 @@ hands the ticket to a human — recording everything it did along the way.
 
 Built for the [take-home challenge](docs/brief.md).
 
-> **Status: the service runs and is packaged.** `POST` a ticket and `GET` it back with its
-> reply and full trace; `GET /metrics` for the handoff and grounding counters; JSON logs,
-> one line per pipeline step. Runs under `uvicorn` or `docker compose` — both commands
-> below. The only thing left, per [Build order](#build-order), is the optional real LLM
-> client (phase 11); the service is complete without it.
+> **Status: complete.** `POST` a ticket and `GET` it back with its reply and full trace;
+> `GET /metrics` for the handoff and grounding counters; JSON logs, one line per pipeline
+> step. Runs under `uvicorn` or `docker compose` — both commands below. The deterministic
+> `FakeLLM` is the default; the optional bonus real client (`LLM_PROVIDER=ollama`) is
+> wired and needs a local model server — see [deploy/PACKAGING.md](deploy/PACKAGING.md).
 
 ---
 

@@ -180,7 +180,7 @@ database. Details in [TRACEABILITY.md](src/support_assistant/tracing/TRACEABILIT
 | 1. `POST` / `GET` endpoints | `api/` | ADR 0001 (sync vs async) |
 | 2. Exactly three tools, fixture-backed | `tools/` | — |
 | 2. Replies contain only tool-sourced facts | `guardrails/` — two layers | **ADR 0004** |
-| 3. LLM interface + deterministic fake | `llm/` | ADR 0006 |
+| 3. LLM interface + deterministic fake | `llm/` | ADR 0006; the optional bonus real client (`OllamaLLM`, `LLM_PROVIDER=ollama`) sits behind the same protocol — ADR 0015 |
 | 4. Hard iteration cap | `guardrails/`, enforced in `pipeline/` | ADR 0002 |
 | 4. Handoff on missing data / bad intent / failure | `pipeline/`, one typed enum | ADR 0005 |
 | 4. Handoff records why | `HandoffReason` + `final_decision` trace step | ADR 0005 |
@@ -206,3 +206,8 @@ Stated here rather than discovered in review. Each is a decision, not a discover
 - **No authentication or rate limiting.** Anyone holding a ticket id can read that
   customer's data. A real vulnerability, deliberately scoped out.
   [Roadmap](docs/ROADMAP.md#authentication-and-rate-limiting).
+- **The real LLM client (`OllamaLLM`) is wired, not hardened** — a fixed timeout and no
+  circuit breaker, one pinned failure test rather than exhaustive schema validation, no
+  token accounting, no evaluation set. It is the optional bonus and off by default
+  ([ADR 0015](docs/adr/0015-json-mode-over-the-tool-calling-api.md)).
+  [Roadmap](docs/ROADMAP.md#hardening-the-real-llm-client).

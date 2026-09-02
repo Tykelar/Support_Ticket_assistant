@@ -19,8 +19,9 @@ services:
       # spelled out so the configuration surface is visible and easy to override.
       MAX_ITERATIONS: "5"
       DATABASE_PATH: "data/tickets.db"          # under WORKDIR /app -> on the volume below
-      LLM_PROVIDER: "fake"                      # `ollama` lands in phase 11; any value uses FakeLLM today
-      OLLAMA_BASE_URL: "http://localhost:11434"
+      LLM_PROVIDER: "fake"                      # `ollama` opts in to a real model server (PACKAGING.md)
+      OLLAMA_BASE_URL: "http://localhost:11434" # only read when LLM_PROVIDER=ollama
+      OLLAMA_MODEL: "llama3.1"                  # only read when LLM_PROVIDER=ollama
       LOG_LEVEL: "info"
     volumes:
       # The SQLite file lives on a named volume so traces survive `docker compose restart`
