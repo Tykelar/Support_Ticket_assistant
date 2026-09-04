@@ -191,12 +191,26 @@ Both are unauthenticated. So is everything else — see below.
 
 ---
 
+## The demo page
+
+`GET /ui` serves a static page that submits tickets and renders their traces
+([DEMO.md](../demo/DEMO.md)). It is a `StaticFiles` mount, not a router: files go out, and
+nothing comes back in through it.
+
+**It adds no data access.** The page drives `POST /tickets` and `GET /tickets/{id}` — the
+same two endpoints a `curl` would — so everything it can read was already being served to
+anyone who asked. In particular there is still no listing endpoint: the page remembers the
+ids it was given, because a `GET /tickets` would be unauthenticated bulk access to customer
+data ([roadmap](../../../docs/ROADMAP.md#cross-ticket-queries)).
+
+---
+
 ## Structure
 
 ```
 api/
   __init__.py
-  app.py            FastAPI app factory, lifespan (DB open/close, logging), the module-level `app`
+  app.py            FastAPI app factory, lifespan (DB open/close, logging), the `/ui` mount, the module-level `app`
   routes.py         the ticket endpoints
   ops.py            /health and /metrics
   schemas.py        Pydantic request/response models

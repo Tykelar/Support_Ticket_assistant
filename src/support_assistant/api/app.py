@@ -17,9 +17,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from support_assistant.api import ops, routes
 from support_assistant.clock import Clock, SystemClock
+from support_assistant.demo import STATIC_DIR as DEMO_STATIC_DIR
 from support_assistant.llm.protocol import LLMClient
 from support_assistant.llm.provider import build_llm
 from support_assistant.observability.logging import configure_logging
@@ -79,6 +81,10 @@ def create_app(
     app = FastAPI(title=TITLE, description=DESCRIPTION, version="0.1.0", lifespan=lifespan)
     app.include_router(routes.router)
     app.include_router(ops.router)
+
+    # The demo page (DEMO.md). Static files only: it drives the same two endpoints a curl
+    # would, so it reads nothing this app was not already serving to anyone who asked.
+    app.mount("/ui", StaticFiles(directory=DEMO_STATIC_DIR, html=True), name="ui")
     return app
 
 

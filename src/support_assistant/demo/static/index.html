@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support Ticket Auto-Reply — demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div>
+    <h1>Support Ticket Auto-Reply</h1>
+    <p class="sub">Post a ticket, watch the pipeline decide, and read the trace it left behind.</p>
+  </div>
+  <nav class="masthead-links">
+    <a href="/docs">OpenAPI</a>
+    <a href="/metrics">Metrics</a>
+    <a href="/health">Health</a>
+  </nav>
+</header>
+
+<main class="layout">
+
+  <!-- ---------------------------------------------------------------- submit -->
+  <section class="panel" aria-labelledby="submit-heading">
+    <h2 id="submit-heading">Send a ticket</h2>
+
+    <label for="scenario">Prepared scenario</label>
+    <select id="scenario">
+      <option value="">Write my own…</option>
+    </select>
+    <p class="note" id="scenario-note">Ten scenarios, one per path the pipeline can take.</p>
+
+    <form id="ticket-form">
+      <label for="user_id">User</label>
+      <input id="user_id" name="user_id" required maxlength="64" value="u_002">
+
+      <label for="subject">Subject</label>
+      <input id="subject" name="subject" required maxlength="200">
+
+      <label for="body">Body</label>
+      <textarea id="body" name="body" required maxlength="5000" rows="4"></textarea>
+
+      <button type="submit" class="primary">Send ticket</button>
+    </form>
+
+    <hr>
+
+    <button id="seed" type="button">Seed all ten scenarios</button>
+    <p class="note">Submits every scenario in a shuffled order, so the list below is not
+      sorted by outcome.</p>
+
+    <hr>
+
+    <label for="lookup">Open a ticket by id</label>
+    <div class="row">
+      <input id="lookup" placeholder="t_… " spellcheck="false">
+      <button id="lookup-go" type="button">Open</button>
+    </div>
+    <p class="note">For an id printed by <code>python -m support_assistant.demo.seed</code>.
+      This page only knows the tickets it was given: there is no listing endpoint, because
+      that would be unauthenticated bulk access to customer data.</p>
+  </section>
+
+  <!-- ----------------------------------------------------------------- list -->
+  <section class="panel" aria-labelledby="list-heading">
+    <div class="panel-head">
+      <h2 id="list-heading">Tickets</h2>
+      <button id="forget" type="button" class="quiet">Forget all</button>
+    </div>
+    <ol id="tickets" class="tickets"></ol>
+    <p class="note" id="tickets-empty">Nothing yet. Send one, or seed the ten.</p>
+
+    <details class="coverage">
+      <summary>What has been demonstrated</summary>
+      <div id="coverage"></div>
+    </details>
+  </section>
+
+  <!-- --------------------------------------------------------------- detail -->
+  <section class="panel detail" aria-labelledby="detail-heading">
+    <h2 id="detail-heading">What the service did</h2>
+    <div id="detail">
+      <p class="note">Select a ticket to see its outcome and the trace behind it.</p>
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

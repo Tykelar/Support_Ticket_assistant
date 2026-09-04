@@ -57,6 +57,23 @@ curl -s localhost:8000/tickets/t_... | jq
 `u_005` (a user who does not exist) demonstrates the handoff path. The full fixture map —
 which user exercises which path — is in [TOOLS.md](src/support_assistant/tools/TOOLS.md).
 
+## Watch it
+
+Open **<http://localhost:8000/ui>** and press *Seed all ten scenarios*.
+
+Ten curated tickets — one per path the pipeline can take — go in, and each one's trace is
+rendered as a timeline: what the intent was classified as and on what evidence, every
+decision the model made, every tool call with its result, the grounding check, and the
+final outcome. Same thing headless, if you prefer:
+
+```bash
+python -m support_assistant.demo.seed
+```
+
+It is a demo aid, not part of the service: static files only, driving the same two
+endpoints a `curl` would. [DEMO.md](src/support_assistant/demo/DEMO.md) — including the two
+handoff reasons it deliberately cannot show, and why they are stated rather than faked.
+
 ---
 
 ## Documentation
@@ -76,6 +93,7 @@ Each component's documentation lives with its code:
 | Traceability | [src/support_assistant/tracing/TRACEABILITY.md](src/support_assistant/tracing/TRACEABILITY.md) |
 | Storage | [src/support_assistant/storage/STORAGE.md](src/support_assistant/storage/STORAGE.md) |
 | Observability | [src/support_assistant/observability/OBSERVABILITY.md](src/support_assistant/observability/OBSERVABILITY.md) |
+| The demo page | [src/support_assistant/demo/DEMO.md](src/support_assistant/demo/DEMO.md) |
 | Tests | [tests/TESTS.md](tests/TESTS.md) |
 | Packaging | [deploy/PACKAGING.md](deploy/PACKAGING.md) |
 | Deferred work, and how | [docs/ROADMAP.md](docs/ROADMAP.md) |

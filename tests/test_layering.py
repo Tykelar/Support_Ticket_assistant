@@ -177,7 +177,23 @@ def test_storage_depends_on_no_component() -> None:
     assert offenders == {}, f"storage/ must not depend on a component, found {offenders}"
 
 
-ABOVE_NOTHING = (*BELOW_THE_PIPELINE, "pipeline")
+def test_the_demo_package_imports_nothing_but_itself() -> None:
+    """`api/` mounts the demo's static files, so the arrow is `api --> demo`. Nothing
+    points back.
+
+    A demo aid that imported the orchestrator or a repository would be a second way to
+    produce a ticket -- one whose states the pipeline never actually reached. It stays
+    scenario data, static files and an HTTP client (DEMO.md).
+    """
+    offenders = {
+        path.relative_to(SRC).as_posix(): sorted(bad)
+        for path in _modules_under("demo")
+        if (bad := {m for m in _imports(path) if _component(m) != "demo"})
+    }
+    assert offenders == {}, f"demo/ reaches into the service: {offenders}. It goes over HTTP."
+
+
+ABOVE_NOTHING = (*BELOW_THE_PIPELINE, "pipeline", "demo")
 """Every package that is not `api`. The arrow into `api` comes from outside the process."""
 
 

@@ -1,0 +1,132 @@
+[
+  {
+    "id": "billing_all_paid",
+    "label": "Nothing outstanding",
+    "note": "u_001 has only paid invoices, so the reply says so and cites no amount.",
+    "user_id": "u_001",
+    "subject": "Is my account fully paid?",
+    "body": "I want to check that every invoice on my account has been settled.",
+    "expect": {
+      "status": "replied",
+      "handoff_reason": null,
+      "reply_mentions": ["Ana Ribeiro", "every invoice on it is paid"]
+    }
+  },
+  {
+    "id": "billing_failed",
+    "label": "A payment that failed",
+    "note": "u_002 has one failed invoice among paid ones; the reply names it and its amount.",
+    "user_id": "u_002",
+    "subject": "My payment did not go through",
+    "body": "I received a notice that my invoice could not be charged. Can you tell me what happened?",
+    "expect": {
+      "status": "replied",
+      "handoff_reason": null,
+      "reply_mentions": ["Ben Carter", "inv_204", "42.10"]
+    }
+  },
+  {
+    "id": "billing_pending",
+    "label": "An invoice still pending",
+    "note": "u_003 has a pending invoice. The only static number in the whole reply surface -- 'within 3 business days' -- is in this template, declared in TEMPLATE_SAFE_LITERALS.",
+    "user_id": "u_003",
+    "subject": "Invoice still not collected",
+    "body": "One of my invoice charges has not gone through yet. Is there a problem with the payment?",
+    "expect": {
+      "status": "replied",
+      "handoff_reason": null,
+      "reply_mentions": ["Chloe Martin", "inv_302", "15.30"]
+    }
+  },
+  {
+    "id": "session_completed",
+    "label": "A session that finished normally",
+    "note": "u_001's latest session completed. Same user as the first scenario, different intent -- the classifier, not the user, picks the tool.",
+    "user_id": "u_001",
+    "subject": "Did my last charging session finish correctly?",
+    "body": "I want to confirm the session at the station completed and how much energy it delivered.",
+    "expect": {
+      "status": "replied",
+      "handoff_reason": null,
+      "reply_mentions": ["Ana Ribeiro", "Porto Norte", "31.50"]
+    }
+  },
+  {
+    "id": "session_interrupted",
+    "label": "A session that cut out",
+    "note": "u_003's latest session was interrupted. The reply states the status word itself, which grounding layer 2 checks against the FactSet.",
+    "user_id": "u_003",
+    "subject": "My charging stopped early",
+    "body": "The charger at the station cut out before my car was full. What happened to that session?",
+    "expect": {
+      "status": "replied",
+      "handoff_reason": null,
+      "reply_mentions": ["Chloe Martin", "Lyon Part-Dieu", "interrupted", "6.20"]
+    }
+  },
+  {
+    "id": "data_not_found",
+    "label": "A user with no data at all",
+    "note": "u_004 exists but has no invoices. An empty result is a handoff, not a cheerful 'you have no invoices' -- zero rows cannot be told apart from a broken upstream join (ADR 0009).",
+    "user_id": "u_004",
+    "subject": "Where are my invoices?",
+    "body": "I cannot find any invoice or payment history in my account.",
+    "expect": {
+      "status": "handed_off",
+      "handoff_reason": "DATA_NOT_FOUND",
+      "reply_mentions": []
+    }
+  },
+  {
+    "id": "user_not_found",
+    "label": "A user who does not exist",
+    "note": "u_005 is absent from the fixtures. The API still returns 202: whether a user exists is a fact only a tool can establish, and that belongs in the trace (API.md).",
+    "user_id": "u_005",
+    "subject": "Question about my invoice",
+    "body": "I would like a copy of my latest invoice and payment receipt.",
+    "expect": {
+      "status": "handed_off",
+      "handoff_reason": "USER_NOT_FOUND",
+      "reply_mentions": []
+    }
+  },
+  {
+    "id": "tool_error",
+    "label": "A malformed record upstream",
+    "note": "u_006's invoice carries an amount that is not a number. The tool fails validation, and the failure reaches the trace as a locator rather than the bad value (TOOLS.md).",
+    "user_id": "u_006",
+    "subject": "Can you resend my last invoice?",
+    "body": "I need the invoice for my last payment so I can file it for expenses.",
+    "expect": {
+      "status": "handed_off",
+      "handoff_reason": "TOOL_ERROR",
+      "reply_mentions": []
+    }
+  },
+  {
+    "id": "unsupported_intent",
+    "label": "A question the tools cannot answer",
+    "note": "No keyword matched. There is no tool for tariffs, station status or support history, so the honest answer is a human (TOOLS.md).",
+    "user_id": "u_002",
+    "subject": "Hello",
+    "body": "I have a question about my account and would like someone to get back to me.",
+    "expect": {
+      "status": "handed_off",
+      "handoff_reason": "UNSUPPORTED_INTENT",
+      "reply_mentions": []
+    }
+  },
+  {
+    "id": "ambiguous_intent",
+    "label": "An ambiguous ticket",
+    "note": "One billing word and one charging word: a tie. Guessing between two templates is the confidently-wrong behaviour the system exists to avoid, so a tie fails closed. The trace carries no keywords, because an unknown intent has no evidence for it (ADR 0012) -- which is why this looks identical to the scenario above.",
+    "user_id": "u_002",
+    "subject": "Problem with my last visit",
+    "body": "The invoice from the station I used does not look right to me.",
+    "expect": {
+      "status": "handed_off",
+      "handoff_reason": "UNSUPPORTED_INTENT",
+      "reply_mentions": []
+    }
+  }
+]
